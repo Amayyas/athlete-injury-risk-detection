@@ -1,0 +1,47 @@
+# ---- Données (jamais versionnées) ----
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# ---- Modèles entraînés & artefacts ----
+models/*.pkl
+models/*.joblib
+models/*.json
+reports/figures/*.png
+!reports/figures/.gitkeep
+
+# ---- Secrets ----
+.kaggle/
+kaggle.json
+.streamlit/secrets.toml
+.env
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- Environnements virtuels ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

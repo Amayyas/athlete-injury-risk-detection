@@ -1,0 +1,25 @@
+[project]
+name = "athlete-injury-risk-detection"
+version = "0.1.0"
+description = "Détection de risque de blessure sportive avec ACWR, XGBoost et explicabilité SHAP"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Les notebooks d'exploration utilisent des idiomes propres (imports par cellule,
+# `;` pour masquer l'output) que ruff signalerait à tort.
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]  # longueur gérée par black
