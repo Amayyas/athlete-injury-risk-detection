@@ -1,0 +1,223 @@
+"""Training of the injury-risk models (XGBoost + SMOTE).
+
+Two independent "tracks" share the same pipeline skeleton:
+
+- ``synthetic``: generated temporal dataset (3 classes low/moderate/high), after
+  full feature engineering (ACWR, rolling, trend);
+- ``real``: real SIRP-600 dataset (binary target, naturally imbalanced).
+
+Common pipeline:
+    SMOTE (rebalancing) -> XGBoostClassifier
+evaluated with stratified 5-fold cross-validation, with **recall**-oriented
+metrics (in a medical context, missing an injury costs more than a false alarm):
+f1_macro, recall_macro, roc_auc (weighted OVR).
+
+Usage:
+    python -m src.models.train               # train both tracks
+    python -m src.models.train --track real  # a single track
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import joblib
+import numpy as np
+import pandas as pd
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline as ImbPipeline
+from sklearn.metrics import classification_report
+from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
+from xgboost import XGBClassifier
+
+from src.data.generate_synthetic import DEFAULT_OUTPUT, generate
+from src.data.load_dataset import SIRP_FEATURE_COLS, SIRP_TARGET, load_sirp600
+from src.features.engineering import SYNTHETIC_FEATURE_COLS, build_features
+
+ROOT = Path(__file__).resolve().parents[2]
+MODELS_DIR = ROOT / "models"
+REPORTS_DIR = ROOT / "reports"
+
+SCORING = {
+    "f1_macro": "f1_macro",
+    "recall_macro": "recall_macro",
+    "roc_auc": "roc_auc_ovr_weighted",
+}
+
+
+def _build_pipeline(n_classes: int, seed: int = 42, params: dict | None = None) -> ImbPipeline:
+    """SMOTE + XGBoost pipeline adapted to the number of classes.
+
+    ``params`` allows injecting hyperparameters from tuning
+    (cf. :mod:`src.models.tune`). Otherwise sensible defaults are used.
+    """
+    objective = "multi:softprob" if n_classes > 2 else "binary:logistic"
+    default_params = {
+        "n_estimators": 300,
+        "max_depth": 4,
+        "learning_rate": 0.05,
+        "subsample": 0.9,
+        "colsample_bytree": 0.9,
+    }
+    xgb_params = {**default_params, **(params or {})}
+    clf = XGBClassifier(
+        **xgb_params,
+        objective=objective,
+        eval_metric="mlogloss" if n_classes > 2 else "logloss",
+        tree_method="hist",
+        random_state=seed,
+        n_jobs=-1,
+    )
+    # Cautious k_neighbors in case a minority class is very rare.
+    return ImbPipeline(
+        steps=[
+            ("smote", SMOTE(random_state=seed, k_neighbors=5)),
+            ("clf", clf),
+        ]
+    )
+
+
+def _evaluate_cv(pipe: ImbPipeline, X: pd.DataFrame, y: pd.Series, seed: int = 42) -> dict:
+    """Stratified 5-fold cross-validation, returns the mean scores."""
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+    results = cross_validate(pipe, X, y, cv=cv, scoring=SCORING, n_jobs=-1)
+    summary = {
+        metric: {
+            "mean": float(np.mean(results[f"test_{metric}"])),
+            "std": float(np.std(results[f"test_{metric}"])),
+        }
+        for metric in SCORING
+    }
+    return summary
+
+
+def _prepare_synthetic(sample_per_athlete: int | None = None, seed: int = 42):
+    """Load/generate the synthetic dataset and apply the feature engineering.
+
+    To avoid the strong autocorrelation between consecutive days of the same
+    athlete (and therefore an overly optimistic CV), we subsample a few spaced
+    days per athlete. We also drop the 28-day "warmup" period where the ACWR is
+    not yet stabilized.
+    """
+    if DEFAULT_OUTPUT.exists():
+        df = pd.read_parquet(DEFAULT_OUTPUT)
+    else:
+        df = generate(seed=seed)
+
+    df = build_features(df)
+    # Warmup: drop the first 28 days (chronic load not yet reliable).
+    df = df[df["day"] >= 28].copy()
+
+    if sample_per_athlete:
+        # Per-athlete stratified subsampling, without groupby.apply.
+        sampled_idx = (
+            df.groupby("athlete_id", group_keys=False)
+            .sample(frac=1.0, random_state=seed)  # intra-athlete shuffle
+            .groupby("athlete_id")
+            .head(sample_per_athlete)
+            .index
+        )
+        df = df.loc[sampled_idx].reset_index(drop=True)
+
+    X = df[SYNTHETIC_FEATURE_COLS]
+    y = df["risk_level"]
+    return X, y, df
+
+
+def _prepare_real(seed: int = 42):
+    df = load_sirp600()
+    X = df[SIRP_FEATURE_COLS]
+    y = df[SIRP_TARGET]
+    return X, y, df
+
+
+def train_track(track: str, seed: int = 42, tuned: bool = False) -> dict:
+    """Train and evaluate a track, save the model + the metrics.
+
+    If ``tuned`` is true and tuning has been performed (cf. src.models.tune), the
+    best hyperparameters are loaded and used.
+    """
+    if track == "synthetic":
+        X, y, _ = _prepare_synthetic(sample_per_athlete=40, seed=seed)
+    elif track == "real":
+        X, y, _ = _prepare_real(seed=seed)
+    else:
+        raise ValueError(f"unknown track: {track!r} (expected 'synthetic' or 'real')")
+
+    n_classes = int(y.nunique())
+    print(f"\n=== Track '{track}': {len(X)} rows, {X.shape[1]} features, {n_classes} classes ===")
+    print(f"Target distribution: {y.value_counts(normalize=True).sort_index().round(3).to_dict()}")
+
+    params = None
+    if tuned:
+        from src.models.tune import load_best_params
+
+        params = load_best_params(track)
+        if params:
+            print(f"Tuned hyperparameters loaded: {params}")
+        else:
+            print("No tuned params found -> defaults. Run src.models.tune.")
+    pipe = _build_pipeline(n_classes, seed, params=params)
+
+    # 1) Cross-validation (honest performance estimate).
+    cv_summary = _evaluate_cv(pipe, X, y, seed)
+    print("Cross-validation (5 folds):")
+    for metric, stats in cv_summary.items():
+        print(f"  {metric:14s} = {stats['mean']:.3f} ± {stats['std']:.3f}")
+
+    # 2) Hold-out for a readable classification report.
+    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=seed)
+    pipe.fit(X_tr, y_tr)
+    y_pred = pipe.predict(X_te)
+    report = classification_report(y_te, y_pred, output_dict=True, zero_division=0)
+    print("Hold-out report (recall per class):")
+    for label in sorted(set(y_te)):
+        rec = report[str(label)]["recall"]
+        print(f"  class {label}: recall={rec:.3f}")
+
+    # 3) Retrain on the whole dataset for the delivered model.
+    pipe.fit(X, y)
+
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    model_path = MODELS_DIR / f"model_{track}.joblib"
+    joblib.dump(
+        {"pipeline": pipe, "feature_cols": list(X.columns), "classes": pipe.classes_.tolist()},
+        model_path,
+    )
+
+    metrics = {
+        "track": track,
+        "n_samples": int(len(X)),
+        "n_features": int(X.shape[1]),
+        "n_classes": n_classes,
+        "class_distribution": y.value_counts(normalize=True).sort_index().round(4).to_dict(),
+        "cross_validation": cv_summary,
+        "holdout_report": report,
+    }
+    metrics_path = REPORTS_DIR / f"metrics_{track}.json"
+    metrics_path.write_text(json.dumps(metrics, indent=2, default=str))
+    print(f"Model -> {model_path}")
+    print(f"Metrics -> {metrics_path}")
+    return metrics
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Train the risk models.")
+    parser.add_argument("--track", choices=["synthetic", "real", "both"], default="both")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--tuned", action="store_true", help="use tuned hyperparameters if available"
+    )
+    args = parser.parse_args()
+
+    tracks = ["synthetic", "real"] if args.track == "both" else [args.track]
+    for track in tracks:
+        train_track(track, seed=args.seed, tuned=args.tuned)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
