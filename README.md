@@ -1,5 +1,9 @@
 # 🩺 Athlete Injury Risk Detection
 
+[![CI](https://github.com/Amayyas/athlete-injury-risk-detection/actions/workflows/ci.yml/badge.svg)](https://github.com/Amayyas/athlete-injury-risk-detection/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Detecting **muscle injury risk** in athletes from training metrics (workload, RPE)
 and physiological signals (sleep, heart rate, soreness), with **full explainability
 via SHAP** so the output is usable by a sports medical staff — not just a black box.
@@ -191,10 +195,14 @@ streamlit run dashboard/app.py
 ### Code quality & tests
 
 ```bash
-pytest            # unit tests (feature engineering)
+pytest            # unit tests + coverage floor
 ruff check .      # lint
 black .           # formatting
+mypy              # static type checking
 ```
+
+All four run on every push and pull request via [GitHub Actions](.github/workflows/ci.yml),
+on Python 3.12 and 3.13.
 
 ---
 

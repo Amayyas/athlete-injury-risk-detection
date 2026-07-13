@@ -121,7 +121,7 @@ def _label_rows(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     )
     df["acwr_raw"] = (acute / chronic.replace(0, np.nan)).fillna(1.0)
 
-    scores = []
+    scores: list[float] = []
     for row in df.itertuples(index=False):
         s = composite_risk_score(
             acwr=row.acwr_raw,
@@ -135,9 +135,9 @@ def _label_rows(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
         )
         scores.append(s)
 
-    scores = np.array(scores)
+    raw_scores = np.asarray(scores)
     # Gaussian noise to avoid a perfect decision boundary (realism).
-    noisy = np.clip(scores + rng.normal(0, 0.06, size=len(scores)), 0, 1)
+    noisy = np.clip(raw_scores + rng.normal(0, 0.06, size=len(raw_scores)), 0, 1)
     df["risk_score"] = noisy.round(4)
     # Default thresholds (cf. risk_score_to_level), calibrated to obtain a
     # realistic imbalance (~70% low / ~22% moderate / ~8% high), shared with the
