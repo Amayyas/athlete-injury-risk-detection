@@ -44,6 +44,7 @@ notebooks = ["nbformat>=5.10", "nbconvert>=7.16", "ipykernel>=6.29"]
 dev = [
     "pytest>=8.3,<9.0",
     "pytest-cov>=5.0",
+    "mypy>=1.13",
     "black>=24.10",
     "ruff>=0.8",
     "injury-risk[dashboard,kaggle,notebooks]",
@@ -58,7 +59,23 @@ packages = ["src/injury_risk"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# The coverage floor is a ratchet set at the project's *current* real level, so it
+# can only go up. Only feature engineering is covered today; issue #10 broadens the
+# suite and will raise this number.
+addopts = "-q --cov=injury_risk --cov-report=term-missing --cov-fail-under=15"
+
+[tool.coverage.run]
+source = ["injury_risk"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/injury_risk", "dashboard", "tests"]
+# The scientific stack (pandas, sklearn, xgboost, shap, streamlit) ships partial
+# or absent stubs; type-checking our own code is the goal, not theirs.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
 
 [tool.black]
 line-length = 100
