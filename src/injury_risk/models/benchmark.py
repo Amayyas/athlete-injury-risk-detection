@@ -26,10 +26,11 @@ from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.model_selection import cross_validate
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
+from injury_risk.models.splits import make_cv, make_groups
 from injury_risk.models.train import (
     REPORTS_DIR,
     SCORING,
@@ -44,10 +45,14 @@ def _candidate_models(n_classes: int, seed: int = 42) -> dict[str, ImbPipeline]:
 
     models = {
         # Logistic regression needs scaling (sensitive to feature scale).
+        # The scaler must come *before* SMOTE: SMOTE interpolates between k-nearest
+        # neighbours using Euclidean distance, so on raw features the synthetic
+        # samples would be dominated by the large-scale variables (training_load in
+        # the hundreds vs sleep_hours in single digits).
         "logistic_regression": ImbPipeline(
             steps=[
-                ("smote", SMOTE(random_state=seed)),
                 ("scaler", StandardScaler()),
+                ("smote", SMOTE(random_state=seed)),
                 (
                     "clf",
                     LogisticRegression(
@@ -99,18 +104,21 @@ def _candidate_models(n_classes: int, seed: int = 42) -> dict[str, ImbPipeline]:
 def benchmark_track(track: str, seed: int = 42) -> pd.DataFrame:
     """Evaluate the 3 baselines on a track and return a comparison table."""
     if track == "synthetic":
-        X, y, _ = _prepare_synthetic(sample_per_athlete=40, seed=seed)
+        X, y, df = _prepare_synthetic(sample_per_athlete=40, seed=seed)
     elif track == "real":
-        X, y, _ = _prepare_real(seed=seed)
+        X, y, df = _prepare_real(seed=seed)
     else:
         raise ValueError(f"unknown track: {track!r}")
 
     n_classes = int(y.nunique())
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+    # Same splitter as training: grouped by athlete on the synthetic track, so the
+    # baselines are compared under the same (leak-free) protocol.
+    cv = make_cv(track, seed=seed)
+    groups = make_groups(track, df)
 
     rows = []
     for name, pipe in _candidate_models(n_classes, seed).items():
-        res = cross_validate(pipe, X, y, cv=cv, scoring=SCORING, n_jobs=-1)
+        res = cross_validate(pipe, X, y, groups=groups, cv=cv, scoring=SCORING, n_jobs=-1)
         rows.append(
             {
                 "model": name,

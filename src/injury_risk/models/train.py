@@ -29,12 +29,13 @@ import pandas as pd
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.metrics import classification_report
-from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
+from sklearn.model_selection import cross_validate
 from xgboost import XGBClassifier
 
 from injury_risk.data.generate_synthetic import DEFAULT_OUTPUT, generate
 from injury_risk.data.load_dataset import SIRP_FEATURE_COLS, SIRP_TARGET, load_sirp600
 from injury_risk.features.engineering import SYNTHETIC_FEATURE_COLS, build_features
+from injury_risk.models.splits import grouped_train_test_split, make_cv, make_groups
 
 ROOT = Path(__file__).resolve().parents[3]
 MODELS_DIR = ROOT / "models"
@@ -79,10 +80,21 @@ def _build_pipeline(n_classes: int, seed: int = 42, params: dict | None = None) 
     )
 
 
-def _evaluate_cv(pipe: ImbPipeline, X: pd.DataFrame, y: pd.Series, seed: int = 42) -> dict:
-    """Stratified 5-fold cross-validation, returns the mean scores."""
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
-    results = cross_validate(pipe, X, y, cv=cv, scoring=SCORING, n_jobs=-1)
+def _evaluate_cv(
+    pipe: ImbPipeline,
+    X: pd.DataFrame,
+    y: pd.Series,
+    track: str,
+    groups: np.ndarray | None,
+    seed: int = 42,
+) -> dict:
+    """Stratified 5-fold cross-validation, returns the mean scores.
+
+    On the synthetic track the folds are **grouped by athlete** so that no athlete
+    appears in both the training and the validation fold (cf. :mod:`.splits`).
+    """
+    cv = make_cv(track, seed=seed)
+    results = cross_validate(pipe, X, y, groups=groups, cv=cv, scoring=SCORING, n_jobs=-1)
     summary = {
         metric: {
             "mean": float(np.mean(results[f"test_{metric}"])),
@@ -96,10 +108,13 @@ def _evaluate_cv(pipe: ImbPipeline, X: pd.DataFrame, y: pd.Series, seed: int = 4
 def _prepare_synthetic(sample_per_athlete: int | None = None, seed: int = 42):
     """Load/generate the synthetic dataset and apply the feature engineering.
 
-    To avoid the strong autocorrelation between consecutive days of the same
-    athlete (and therefore an overly optimistic CV), we subsample a few spaced
-    days per athlete. We also drop the 28-day "warmup" period where the ACWR is
-    not yet stabilized.
+    We subsample a few days per athlete to thin out the strong autocorrelation
+    between consecutive days, and we drop the 28-day "warmup" period where the
+    chronic load (and therefore the ACWR) is not yet stabilized.
+
+    Note that sub-sampling does **not** protect against athlete-level leakage —
+    the same athlete would still land in several folds. That is handled by the
+    grouped cross-validation in :mod:`.splits`.
     """
     if DEFAULT_OUTPUT.exists():
         df = pd.read_parquet(DEFAULT_OUTPUT)
@@ -140,12 +155,13 @@ def train_track(track: str, seed: int = 42, tuned: bool = False) -> dict:
     best hyperparameters are loaded and used.
     """
     if track == "synthetic":
-        X, y, _ = _prepare_synthetic(sample_per_athlete=40, seed=seed)
+        X, y, df = _prepare_synthetic(sample_per_athlete=40, seed=seed)
     elif track == "real":
-        X, y, _ = _prepare_real(seed=seed)
+        X, y, df = _prepare_real(seed=seed)
     else:
         raise ValueError(f"unknown track: {track!r} (expected 'synthetic' or 'real')")
 
+    groups = make_groups(track, df)
     n_classes = int(y.nunique())
     print(f"\n=== Track '{track}': {len(X)} rows, {X.shape[1]} features, {n_classes} classes ===")
     print(f"Target distribution: {y.value_counts(normalize=True).sort_index().round(3).to_dict()}")
@@ -161,14 +177,16 @@ def train_track(track: str, seed: int = 42, tuned: bool = False) -> dict:
             print("No tuned params found -> defaults. Run injury_risk.models.tune.")
     pipe = _build_pipeline(n_classes, seed, params=params)
 
-    # 1) Cross-validation (honest performance estimate).
-    cv_summary = _evaluate_cv(pipe, X, y, seed)
-    print("Cross-validation (5 folds):")
+    # 1) Cross-validation (honest performance estimate), grouped by athlete.
+    cv_summary = _evaluate_cv(pipe, X, y, track, groups, seed)
+    grouped = "grouped by athlete" if groups is not None else "stratified"
+    print(f"Cross-validation (5 folds, {grouped}):")
     for metric, stats in cv_summary.items():
         print(f"  {metric:14s} = {stats['mean']:.3f} ± {stats['std']:.3f}")
 
-    # 2) Hold-out for a readable classification report.
-    X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, stratify=y, random_state=seed)
+    # 2) Hold-out for a readable classification report — also grouped, otherwise
+    #    the same athlete would sit on both sides of the split.
+    X_tr, X_te, y_tr, y_te = grouped_train_test_split(X, y, groups, seed=seed)
     pipe.fit(X_tr, y_tr)
     y_pred = pipe.predict(X_te)
     report = classification_report(y_te, y_pred, output_dict=True, zero_division=0)
@@ -194,6 +212,8 @@ def train_track(track: str, seed: int = 42, tuned: bool = False) -> dict:
         "n_features": int(X.shape[1]),
         "n_classes": n_classes,
         "class_distribution": y.value_counts(normalize=True).sort_index().round(4).to_dict(),
+        "cv_strategy": type(make_cv(track, seed=seed)).__name__,
+        "n_groups": int(len(np.unique(groups))) if groups is not None else None,
         "cross_validation": cv_summary,
         "holdout_report": report,
     }

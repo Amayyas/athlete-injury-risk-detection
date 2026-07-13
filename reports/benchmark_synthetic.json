@@ -1,29 +1,29 @@
 [
   {
     "model": "random_forest",
-    "f1_macro": 0.5653,
-    "recall_macro": 0.6268,
-    "roc_auc": 0.7983,
-    "f1_macro_std": 0.0101,
-    "recall_macro_std": 0.0126,
-    "roc_auc_std": 0.0119
+    "f1_macro": 0.5518,
+    "recall_macro": 0.611,
+    "roc_auc": 0.7838,
+    "f1_macro_std": 0.0116,
+    "recall_macro_std": 0.0158,
+    "roc_auc_std": 0.016
   },
   {
     "model": "xgboost",
-    "f1_macro": 0.5692,
-    "recall_macro": 0.6207,
-    "roc_auc": 0.8046,
-    "f1_macro_std": 0.0147,
-    "recall_macro_std": 0.018,
-    "roc_auc_std": 0.0091
+    "f1_macro": 0.5531,
+    "recall_macro": 0.6056,
+    "roc_auc": 0.7826,
+    "f1_macro_std": 0.016,
+    "recall_macro_std": 0.0236,
+    "roc_auc_std": 0.0161
   },
   {
     "model": "logistic_regression",
-    "f1_macro": 0.4799,
-    "recall_macro": 0.55,
-    "roc_auc": 0.7255,
-    "f1_macro_std": 0.0059,
-    "recall_macro_std": 0.0092,
-    "roc_auc_std": 0.0091
+    "f1_macro": 0.4852,
+    "recall_macro": 0.5523,
+    "roc_auc": 0.7337,
+    "f1_macro_std": 0.0195,
+    "recall_macro_std": 0.0253,
+    "roc_auc_std": 0.0153
   }
 ]
