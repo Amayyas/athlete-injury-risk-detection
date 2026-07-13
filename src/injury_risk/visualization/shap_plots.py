@@ -9,7 +9,7 @@ understand *why* an athlete is classified as at risk. We use a
   athlete's prediction.
 
 Usage:
-    python -m src.visualization.shap_plots --track synthetic
+    python -m injury_risk.visualization.shap_plots --track synthetic
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ matplotlib.use("Agg")  # non-interactive backend (file generation)
 import matplotlib.pyplot as plt  # noqa: E402
 import shap  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 MODELS_DIR = ROOT / "models"
 FIGURES_DIR = ROOT / "reports" / "figures"
 
@@ -35,7 +35,7 @@ def _load_model(track: str):
     path = MODELS_DIR / f"model_{track}.joblib"
     if not path.exists():
         raise FileNotFoundError(
-            f"Model not found: {path}\nRun first: python -m src.models.train --track {track}"
+            f"Model not found: {path}\nRun first: python -m injury_risk.models.train --track {track}"
         )
     bundle = joblib.load(path)
     return bundle["pipeline"], bundle["feature_cols"], bundle["classes"]
@@ -44,11 +44,11 @@ def _load_model(track: str):
 def _sample_data(track: str, feature_cols: list[str], n: int = 500, seed: int = 42) -> pd.DataFrame:
     """Rebuild a feature sample to explain the model."""
     if track == "synthetic":
-        from src.models.train import _prepare_synthetic
+        from injury_risk.models.train import _prepare_synthetic
 
         X, _, _ = _prepare_synthetic(sample_per_athlete=40, seed=seed)
     else:
-        from src.models.train import _prepare_real
+        from injury_risk.models.train import _prepare_real
 
         X, _, _ = _prepare_real(seed=seed)
     X = X[feature_cols]

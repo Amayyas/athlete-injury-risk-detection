@@ -6,10 +6,10 @@ priority: in a medical context, missing an injury (false negative) costs more
 than a false alarm.
 
 The best parameters are saved to ``models/best_params_{track}.json`` and
-automatically reused by ``src.models.train`` when the ``--tuned`` option is passed.
+automatically reused by ``injury_risk.models.train`` when the ``--tuned`` option is passed.
 
 Usage:
-    python -m src.models.tune --track synthetic --n-iter 30
+    python -m injury_risk.models.tune --track synthetic --n-iter 30
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from scipy.stats import randint, uniform
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
 from xgboost import XGBClassifier
 
-from src.models.train import MODELS_DIR, _prepare_real, _prepare_synthetic
+from injury_risk.models.train import MODELS_DIR, _prepare_real, _prepare_synthetic
 
 # Search space (prefixed with ``clf__`` to target the pipeline step).
 PARAM_DISTRIBUTIONS = {

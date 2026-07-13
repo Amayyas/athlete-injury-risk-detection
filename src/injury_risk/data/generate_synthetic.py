@@ -7,13 +7,13 @@ This generator therefore produces a demonstration dataset that is "deep" in time
 - 200 simulated athletes over 2 seasons (730 days);
 - static characteristics (age, position, base fitness, injury proneness, history);
 - daily measurements (training load, resting HR, sleep, soreness);
-- composite risk score (cf. :mod:`src.features.engineering`) + noise, then
+- composite risk score (cf. :mod:`injury_risk.features.engineering`) + noise, then
   discretization into 3 **deliberately imbalanced** classes (few "high"), which
   justifies the use of SMOTE downstream.
 
 Usage:
-    python -m src.data.generate_synthetic            # 200 athletes, 730 days
-    python -m src.data.generate_synthetic --athletes 50 --days 365
+    python -m injury_risk.data.generate_synthetic            # 200 athletes, 730 days
+    python -m injury_risk.data.generate_synthetic --athletes 50 --days 365
 """
 
 from __future__ import annotations
@@ -24,13 +24,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.features.engineering import (
+from injury_risk.features.engineering import (
     POSITIONS,
     composite_risk_score,
     risk_score_to_level,
 )
 
-PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
+PROCESSED_DIR = Path(__file__).resolve().parents[3] / "data" / "processed"
 DEFAULT_OUTPUT = PROCESSED_DIR / "synthetic_athletes.parquet"
 
 # Average "target" weekly load per position (intensity proxy).

@@ -12,8 +12,8 @@ than by principle. Results are printed as a table and saved to
 ``reports/benchmark_{track}.json``.
 
 Usage:
-    python -m src.models.benchmark               # both tracks
-    python -m src.models.benchmark --track real
+    python -m injury_risk.models.benchmark               # both tracks
+    python -m injury_risk.models.benchmark --track real
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from sklearn.model_selection import StratifiedKFold, cross_validate
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
-from src.models.train import (
+from injury_risk.models.train import (
     REPORTS_DIR,
     SCORING,
     _prepare_real,

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.features.engineering import (
+from injury_risk.features.engineering import (
     POSITION_TO_CODE,
     acwr_zone,
     add_acwr,

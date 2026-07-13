@@ -15,7 +15,7 @@ one athlete), so **no real ACWR possible** on this dataset; binary target (not
 temporal synthetic dataset.
 
 Usage:
-    from src.data.load_dataset import load_sirp600
+    from injury_risk.data.load_dataset import load_sirp600
     df = load_sirp600()
 """
 
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
+RAW_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
 SIRP_PATH = RAW_DIR / "sirp-600" / "High_Accuracy_Sport_Injury_Dataset.xlsx"
 
 # Feature columns (everything but the target) for the "real data" track.
@@ -59,7 +59,7 @@ def load_sirp600(path: Path = SIRP_PATH) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(
             f"SIRP-600 dataset not found: {path}\n"
-            "Run first: python -m src.data.download sirp-600"
+            "Run first: python -m injury_risk.data.download sirp-600"
         )
 
     df = pd.read_excel(path)
