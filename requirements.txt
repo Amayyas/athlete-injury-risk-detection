@@ -1,38 +1,7 @@
-# Athlete Injury Risk Detection — dépendances (Python 3.12)
+# Dependencies are declared in pyproject.toml — it is the single source of truth.
+# This file is kept for tools that expect a requirements.txt (e.g. Streamlit Cloud).
+#
+#   pip install -r requirements.txt   -> runtime + dashboard
+#   pip install -e ".[dev]"           -> development (tests, lint, notebooks)
 
-# --- Données & calcul ---
-pandas>=2.2,<3.0
-numpy>=1.26,<3.0
-openpyxl>=3.1,<4.0  # lecture des datasets .xlsx (ex. SIRP-600)
-
-# --- Machine Learning ---
-scikit-learn>=1.5,<2.0
-xgboost>=2.1,<3.0
-imbalanced-learn>=0.14,<0.15  # 0.14+ requis pour compat scikit-learn >= 1.7
-
-# --- Explicabilité ---
-shap>=0.46,<0.50
-
-# --- Dashboard ---
-streamlit>=1.40,<2.0
-
-# --- Visualisation ---
-matplotlib>=3.9,<4.0
-seaborn>=0.13,<0.14
-
-# --- Persistance modèle ---
-joblib>=1.4,<2.0
-
-# --- Téléchargement datasets Kaggle (optionnel) ---
-kaggle>=1.6,<2.0
-
-# --- Tests & qualité de code ---
-pytest>=8.3,<9.0
-black>=24.10
-ruff>=0.8
-
-# --- Notebooks (EDA) ---
-nbformat>=5.10
-nbconvert>=7.16
-ipykernel>=6.29
-scipy>=1.11  # utilisé par le tuning (RandomizedSearchCV)
+-e .[dashboard]

@@ -2,7 +2,7 @@
 
 The app is **functional even without a trained model**: the risk score is then
 computed live from the business rules (ACWR, sleep, soreness…) defined in
-:mod:`src.features.engineering`. If an XGBoost model has been trained, a section
+:mod:`injury_risk.features.engineering`. If an XGBoost model has been trained, a section
 additionally displays the SHAP plots.
 
 Launch:
@@ -11,23 +11,19 @@ Launch:
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import streamlit as st
 
-# Allows importing the `src` package when Streamlit runs this file directly.
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from src.features.engineering import (  # noqa: E402
+from injury_risk.features.engineering import (
     POSITIONS,
     RISK_LABELS,
     acwr_zone,
     composite_risk_score,
     risk_score_to_level,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 FIGURES_DIR = ROOT / "reports" / "figures"
 
@@ -167,8 +163,8 @@ if summary_synth.exists() or waterfall_synth.exists():
 else:
     st.info(
         "SHAP plots will show up here after the model is trained:\n\n"
-        "```\npython -m src.models.train --track synthetic\n"
-        "python -m src.visualization.shap_plots --track synthetic\n```"
+        "```\npython -m injury_risk.models.train --track synthetic\n"
+        "python -m injury_risk.visualization.shap_plots --track synthetic\n```"
     )
 
 with st.expander("ℹ️ About the data & limitations"):

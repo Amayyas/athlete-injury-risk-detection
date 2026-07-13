@@ -62,13 +62,13 @@ strategy:
 
 ## 🧠 ML pipeline
 
-1. **Feature engineering** (`src/features/engineering.py`): 7/14/28-day rolling
+1. **Feature engineering** (`src/injury_risk/features/engineering.py`): 7/14/28-day rolling
    (workload, soreness, sleep), **ACWR + zone** (under/optimal/elevated/danger),
    **workload trend** over 7 days, position encoding.
-2. **Modeling** (`src/models/train.py`): `XGBoostClassifier` + **SMOTE**,
+2. **Modeling** (`src/injury_risk/models/train.py`): `XGBoostClassifier` + **SMOTE**,
    **stratified 5-fold cross-validation**, recall-oriented metrics —
    `f1_macro`, `recall_macro`, `roc_auc_ovr_weighted`.
-3. **Explainability** (`src/visualization/shap_plots.py`): `TreeExplainer`,
+3. **Explainability** (`src/injury_risk/visualization/shap_plots.py`): `TreeExplainer`,
    global **summary plot** + per-athlete **waterfall plot**.
 4. **Dashboard** (`dashboard/app.py`): live score, colored gauge, active risk
    factors, SHAP plots.
@@ -87,7 +87,7 @@ strategy:
 
 Before settling on XGBoost, three model families were compared under the **same
 protocol** (SMOTE + stratified 5-fold CV), sorted by `recall_macro` (business
-priority). Reproducible via `python -m src.models.benchmark`.
+priority). Reproducible via `python -m injury_risk.models.benchmark`.
 
 **Synthetic track (3 classes)**
 
@@ -115,7 +115,7 @@ priority). Reproducible via `python -m src.models.benchmark`.
   equivalent performance: (1) it beats RF on `f1_macro` *and* `roc_auc` of the
   **synthetic track** (the project's primary track); (2) its regularization
   (`min_child_weight`, `gamma`, `subsample`) is better suited to recall-oriented
-  tuning (`src/models/tune.py`); (3) it integrates natively with
+  tuning (`src/injury_risk/models/tune.py`); (3) it integrates natively with
   `shap.TreeExplainer` for explainability.
 
 ---
@@ -130,22 +130,28 @@ priority). Reproducible via `python -m src.models.benchmark`.
 
 ## 📁 Structure
 
+The project is a proper installable package (`src` layout):
+
 ```
 athlete-injury-risk-detection/
 ├── data/
-│   ├── raw/              # raw Kaggle datasets (gitignored)
-│   └── processed/        # generated synthetic dataset (gitignored)
+│   ├── raw/                  # raw Kaggle datasets (gitignored)
+│   └── processed/            # generated synthetic dataset (gitignored)
 ├── src/
-│   ├── data/             # download.py, load_dataset.py, generate_synthetic.py
-│   ├── features/         # engineering.py (ACWR, rolling, composite score)
-│   ├── models/           # train.py (XGBoost + SMOTE + CV)
-│   └── visualization/    # shap_plots.py
-├── dashboard/            # app.py (Streamlit)
-├── tests/                # pytest tests (feature engineering)
-├── reports/figures/      # generated SHAP plots
-├── models/               # trained .joblib models (gitignored)
-├── requirements.txt
-├── pyproject.toml
+│   └── injury_risk/          # the installable package
+│       ├── data/             # download.py, load_dataset.py, generate_synthetic.py
+│       ├── features/         # engineering.py (ACWR, rolling, composite score)
+│       ├── models/           # train.py, tune.py, benchmark.py
+│       └── visualization/    # shap_plots.py
+├── dashboard/                # app.py (Streamlit)
+├── tests/                    # pytest tests
+├── notebooks/                # 01_eda.ipynb
+├── reports/figures/          # generated SHAP plots (gitignored)
+├── models/                   # trained .joblib models (gitignored)
+├── docs/                     # dashboard screenshot
+├── pyproject.toml            # metadata, dependencies, tooling config
+├── requirements.txt          # thin pointer to pyproject
+├── LICENSE
 └── README.md
 ```
 
@@ -154,28 +160,29 @@ athlete-injury-risk-detection/
 ## 🚀 Getting started
 
 ```bash
-# 1) Environment
+# 1) Environment — installs the `injury_risk` package in editable mode
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"        # runtime + tests, lint, notebooks
+# (or, runtime + dashboard only:  pip install -r requirements.txt)
 
 # 2) (Optional) Download the real datasets — requires a Kaggle token
-python -m src.data.download                 # everything
-python -m src.data.download sirp-600        # a single one
+python -m injury_risk.data.download                 # everything
+python -m injury_risk.data.download sirp-600        # a single one
 
 # 3) Generate the synthetic dataset (200 athletes × 730 days)
-python -m src.data.generate_synthetic
+python -m injury_risk.data.generate_synthetic
 
 # 4) (Optional) Compare baselines (LogReg / RandomForest / XGBoost)
-python -m src.models.benchmark              # or --track synthetic / --track real
+python -m injury_risk.models.benchmark              # or --track synthetic / --track real
 
 # 5) (Optional) Tune XGBoost hyperparameters (recall-first)
-python -m src.models.tune --track synthetic --n-iter 30
+python -m injury_risk.models.tune --track synthetic --n-iter 30
 
 # 6) Train the models (synthetic + real)
-python -m src.models.train                  # add --tuned to use tuned params
+python -m injury_risk.models.train                  # add --tuned to use tuned params
 
 # 7) Generate the SHAP plots
-python -m src.visualization.shap_plots --track synthetic
+python -m injury_risk.visualization.shap_plots --track synthetic
 
 # 8) Launch the dashboard (works even without a trained model)
 streamlit run dashboard/app.py
@@ -206,4 +213,12 @@ shows up automatically.
 - Probability calibration + recall-oriented threshold (asymmetric cost).
 - Per-athlete temporal tracking in the dashboard (ACWR curve over the season).
 - Hyperparameter tuning (Optuna) and baseline comparison (LogReg, RandomForest).
+
+> Tracked as [GitHub issues](https://github.com/Amayyas/athlete-injury-risk-detection/issues).
+
+---
+
+## 📄 License
+
+Released under the [MIT License](LICENSE).
 ```

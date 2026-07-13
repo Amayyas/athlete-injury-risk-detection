@@ -5,8 +5,8 @@ Prerequisites:
     - `pip install -r requirements.txt`
 
 Usage:
-    python -m src.data.download            # download everything
-    python -m src.data.download sirp-600   # a single dataset (by key)
+    python -m injury_risk.data.download            # download everything
+    python -m injury_risk.data.download sirp-600   # a single dataset (by key)
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Project root (src/data/download.py -> go up 2 levels)
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
+# Project root (src/injury_risk/data/download.py -> go up 2 levels)
+RAW_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
 
 # local key -> Kaggle ref (owner/dataset-name)
 DATASETS: dict[str, str] = {

@@ -13,8 +13,8 @@ metrics (in a medical context, missing an injury costs more than a false alarm):
 f1_macro, recall_macro, roc_auc (weighted OVR).
 
 Usage:
-    python -m src.models.train               # train both tracks
-    python -m src.models.train --track real  # a single track
+    python -m injury_risk.models.train               # train both tracks
+    python -m injury_risk.models.train --track real  # a single track
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
 from xgboost import XGBClassifier
 
-from src.data.generate_synthetic import DEFAULT_OUTPUT, generate
-from src.data.load_dataset import SIRP_FEATURE_COLS, SIRP_TARGET, load_sirp600
-from src.features.engineering import SYNTHETIC_FEATURE_COLS, build_features
+from injury_risk.data.generate_synthetic import DEFAULT_OUTPUT, generate
+from injury_risk.data.load_dataset import SIRP_FEATURE_COLS, SIRP_TARGET, load_sirp600
+from injury_risk.features.engineering import SYNTHETIC_FEATURE_COLS, build_features
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 MODELS_DIR = ROOT / "models"
 REPORTS_DIR = ROOT / "reports"
 
@@ -51,7 +51,7 @@ def _build_pipeline(n_classes: int, seed: int = 42, params: dict | None = None) 
     """SMOTE + XGBoost pipeline adapted to the number of classes.
 
     ``params`` allows injecting hyperparameters from tuning
-    (cf. :mod:`src.models.tune`). Otherwise sensible defaults are used.
+    (cf. :mod:`injury_risk.models.tune`). Otherwise sensible defaults are used.
     """
     objective = "multi:softprob" if n_classes > 2 else "binary:logistic"
     default_params = {
@@ -136,7 +136,7 @@ def _prepare_real(seed: int = 42):
 def train_track(track: str, seed: int = 42, tuned: bool = False) -> dict:
     """Train and evaluate a track, save the model + the metrics.
 
-    If ``tuned`` is true and tuning has been performed (cf. src.models.tune), the
+    If ``tuned`` is true and tuning has been performed (cf. injury_risk.models.tune), the
     best hyperparameters are loaded and used.
     """
     if track == "synthetic":
@@ -152,13 +152,13 @@ def train_track(track: str, seed: int = 42, tuned: bool = False) -> dict:
 
     params = None
     if tuned:
-        from src.models.tune import load_best_params
+        from injury_risk.models.tune import load_best_params
 
         params = load_best_params(track)
         if params:
             print(f"Tuned hyperparameters loaded: {params}")
         else:
-            print("No tuned params found -> defaults. Run src.models.tune.")
+            print("No tuned params found -> defaults. Run injury_risk.models.tune.")
     pipe = _build_pipeline(n_classes, seed, params=params)
 
     # 1) Cross-validation (honest performance estimate).
