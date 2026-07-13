@@ -25,8 +25,7 @@ from pathlib import Path
 
 import pandas as pd
 
-RAW_DIR = Path(__file__).resolve().parents[3] / "data" / "raw"
-SIRP_PATH = RAW_DIR / "sirp-600" / "High_Accuracy_Sport_Injury_Dataset.xlsx"
+from injury_risk.config import SIRP_PATH
 
 # Feature columns (everything but the target) for the "real data" track.
 SIRP_TARGET = "Injury_Risk"

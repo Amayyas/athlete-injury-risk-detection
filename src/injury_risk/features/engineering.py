@@ -11,6 +11,8 @@ This module gathers the project's "domain" logic:
   synthetic generator (label creation) and the dashboard (real-time scoring
   without a trained model).
 
+Every constant it relies on lives in :mod:`injury_risk.config`.
+
 Functions operating on time series expect a DataFrame sorted by athlete then by
 date, with at least the columns: ``athlete_id``, ``date``, ``training_load``,
 ``soreness``, ``sleep_hours``, ``resting_hr``.
@@ -21,27 +23,35 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# --------------------------------------------------------------------------- #
-# Domain constants
-# --------------------------------------------------------------------------- #
-
-# Rolling windows (in days) used for the ACWR and the rolling features.
-ACUTE_WINDOW = 7
-CHRONIC_WINDOW = 28
-ROLLING_WINDOWS = (7, 14, 28)
-
-# ACWR zone bounds (from the training-load literature).
-ACWR_ZONES = {
-    "under": (0.0, 0.8),  # under-training
-    "optimal": (0.8, 1.3),  # "sweet spot"
-    "elevated": (1.3, 1.5),  # rising load, watch closely
-    "danger": (1.5, np.inf),  # high-risk zone
-}
-
-# Possible positions -> integer code (simple, stable ordinal encoding).
-POSITIONS = ("goalkeeper", "defender", "midfielder", "forward")
-POSITION_TO_CODE = {pos: i for i, pos in enumerate(POSITIONS)}
-
+from injury_risk.config import (
+    ACUTE_WINDOW,
+    ACWR_DANGER,
+    ACWR_ELEVATED,
+    ACWR_UNDER,
+    ACWR_ZONES,
+    CHRONIC_WINDOW,
+    HR_DELTA_RANGE,
+    LOAD_TREND_WINDOW,
+    POSITION_TO_CODE,
+    PREVIOUS_INJURIES_RANGE,
+    RECENT_RETURN_DAYS,
+    RISK_HIGH_THRESHOLD,
+    RISK_LOW_THRESHOLD,
+    ROLLING_WINDOWS,
+    SLEEP_RANGE,
+    SLEEP_TARGET,
+    SORENESS_ONSET,
+    SORENESS_RANGE,
+    W_ACWR_DANGER,
+    W_ACWR_ELEVATED,
+    W_ACWR_UNDER,
+    W_INJURY_PRONE,
+    W_PREVIOUS_INJURIES,
+    W_RECENT_RETURN,
+    W_RESTING_HR,
+    W_SLEEP,
+    W_SORENESS,
+)
 
 # --------------------------------------------------------------------------- #
 # ACWR & zones
@@ -55,7 +65,7 @@ def acwr_zone(acwr: float) -> str:
     for zone, (low, high) in ACWR_ZONES.items():
         if low <= acwr < high:
             return zone
-    return "danger"  # acwr >= 1.5
+    return "danger"  # acwr >= ACWR_DANGER
 
 
 def add_acwr(df: pd.DataFrame, load_col: str = "training_load") -> pd.DataFrame:
@@ -107,7 +117,9 @@ def _slope(values: np.ndarray) -> float:
 
 
 def add_load_trend(
-    df: pd.DataFrame, load_col: str = "training_load", window: int = 7
+    df: pd.DataFrame,
+    load_col: str = "training_load",
+    window: int = LOAD_TREND_WINDOW,
 ) -> pd.DataFrame:
     """Add ``load_trend_7d``: workload slope over the window (per athlete)."""
     df = df.copy()
@@ -156,49 +168,50 @@ def composite_risk_score(
       trained/loaded.
 
     Contributions are deliberately additive and bounded to stay readable and
-    explainable.
+    explainable. Every weight and range comes from :mod:`injury_risk.config`.
     """
     score = 0.0
 
-    # 1) ACWR: the danger zone (>1.5) is the main risk factor.
-    if acwr >= 1.5:
-        score += 0.35
-    elif acwr >= 1.3:
-        score += 0.18
-    elif acwr < 0.8:
-        score += 0.08  # under-loading: moderate risk (detraining)
+    # 1) ACWR: the danger zone is the main risk factor.
+    if acwr >= ACWR_DANGER:
+        score += W_ACWR_DANGER
+    elif acwr >= ACWR_ELEVATED:
+        score += W_ACWR_ELEVATED
+    elif acwr < ACWR_UNDER:
+        score += W_ACWR_UNDER  # under-loading: moderate risk (detraining)
 
     # 2) High soreness (0-10 scale).
-    score += np.clip((soreness - 4) / 6, 0, 1) * 0.20
+    score += np.clip((soreness - SORENESS_ONSET) / SORENESS_RANGE, 0, 1) * W_SORENESS
 
-    # 3) Lack of sleep (< 7 h = recognized risk factor).
-    score += np.clip((7 - sleep_hours) / 4, 0, 1) * 0.15
+    # 3) Lack of sleep (below the target is a recognised risk factor).
+    score += np.clip((SLEEP_TARGET - sleep_hours) / SLEEP_RANGE, 0, 1) * W_SLEEP
 
     # 4) Resting heart rate elevated vs baseline (fatigue/stress).
-    score += np.clip((resting_hr - baseline_hr) / 20, 0, 1) * 0.12
+    score += np.clip((resting_hr - baseline_hr) / HR_DELTA_RANGE, 0, 1) * W_RESTING_HR
 
     # 5) History: proneness + number of past injuries.
     if injury_prone:
-        score += 0.10
-    score += np.clip(previous_injuries / 5, 0, 1) * 0.08
+        score += W_INJURY_PRONE
+    score += np.clip(previous_injuries / PREVIOUS_INJURIES_RANGE, 0, 1) * W_PREVIOUS_INJURIES
 
-    # 6) Recent return from injury (< 60 days): tissue still fragile.
-    if days_since_injury < 60:
-        score += 0.10 * (1 - days_since_injury / 60)
+    # 6) Recent return from injury: tissue still fragile.
+    if days_since_injury < RECENT_RETURN_DAYS:
+        score += W_RECENT_RETURN * (1 - days_since_injury / RECENT_RETURN_DAYS)
 
     return float(np.clip(score, 0.0, 1.0))
 
 
-def risk_score_to_level(score: float, low_thr: float = 0.16, high_thr: float = 0.27) -> int:
+def risk_score_to_level(
+    score: float,
+    low_thr: float = RISK_LOW_THRESHOLD,
+    high_thr: float = RISK_HIGH_THRESHOLD,
+) -> int:
     """Convert a continuous score into a risk level: 0=low, 1=moderate, 2=high."""
     if score >= high_thr:
         return 2
     if score >= low_thr:
         return 1
     return 0
-
-
-RISK_LABELS = {0: "Low", 1: "Moderate", 2: "High"}
 
 
 # --------------------------------------------------------------------------- #

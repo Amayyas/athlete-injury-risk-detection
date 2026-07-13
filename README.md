@@ -168,9 +168,10 @@ athlete-injury-risk-detection/
 │   └── processed/            # generated synthetic dataset (gitignored)
 ├── src/
 │   └── injury_risk/          # the installable package
-│       ├── data/             # download.py, load_dataset.py, generate_synthetic.py
+│       ├── config.py         # single source of truth (paths, thresholds, weights, CV)
+│       ├── data/             # datasets.py (public API), generate_synthetic.py, load_dataset.py
 │       ├── features/         # engineering.py (ACWR, rolling, composite score)
-│       ├── models/           # train.py, tune.py, benchmark.py
+│       ├── models/           # train.py, tune.py, benchmark.py, splits.py (grouped CV)
 │       └── visualization/    # shap_plots.py
 ├── dashboard/                # app.py (Streamlit)
 ├── tests/                    # pytest tests

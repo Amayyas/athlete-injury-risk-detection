@@ -11,12 +11,8 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
-from injury_risk.models.splits import (
-    grouped_train_test_split,
-    make_cv,
-    make_groups,
-    needs_grouping,
-)
+from injury_risk.data.datasets import make_groups, needs_grouping
+from injury_risk.models.splits import grouped_train_test_split, make_cv
 
 
 def _repeated_measures_df(n_athletes: int = 20, n_days: int = 10) -> pd.DataFrame:

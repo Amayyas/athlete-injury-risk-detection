@@ -22,13 +22,12 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
+from injury_risk.config import DEFAULT_SEED, FIGURES_DIR, MODELS_DIR
+from injury_risk.data.datasets import TRACKS, load_track
+
 matplotlib.use("Agg")  # non-interactive backend (file generation)
 import matplotlib.pyplot as plt  # noqa: E402
 import shap  # noqa: E402
-
-ROOT = Path(__file__).resolve().parents[3]
-MODELS_DIR = ROOT / "models"
-FIGURES_DIR = ROOT / "reports" / "figures"
 
 
 def _load_model(track: str):
@@ -41,23 +40,17 @@ def _load_model(track: str):
     return bundle["pipeline"], bundle["feature_cols"], bundle["classes"]
 
 
-def _sample_data(track: str, feature_cols: list[str], n: int = 500, seed: int = 42) -> pd.DataFrame:
+def _sample_data(
+    track: str, feature_cols: list[str], n: int = 500, seed: int = DEFAULT_SEED
+) -> pd.DataFrame:
     """Rebuild a feature sample to explain the model."""
-    if track == "synthetic":
-        from injury_risk.models.train import _prepare_synthetic
-
-        X, _, _ = _prepare_synthetic(sample_per_athlete=40, seed=seed)
-    else:
-        from injury_risk.models.train import _prepare_real
-
-        X, _, _ = _prepare_real(seed=seed)
-    X = X[feature_cols]
+    X = load_track(track, seed=seed).X[feature_cols]
     if len(X) > n:
         X = X.sample(n, random_state=seed)
     return X.reset_index(drop=True)
 
 
-def compute_shap(track: str, n: int = 500, seed: int = 42):
+def compute_shap(track: str, n: int = 500, seed: int = DEFAULT_SEED):
     """Return (explainer, shap_values, X) for a given track."""
     pipe, feature_cols, _ = _load_model(track)
     model = pipe.named_steps["clf"]
@@ -68,7 +61,7 @@ def compute_shap(track: str, n: int = 500, seed: int = 42):
     return explainer, shap_values, X
 
 
-def save_summary_plot(track: str, n: int = 500, seed: int = 42) -> Path:
+def save_summary_plot(track: str, n: int = 500, seed: int = DEFAULT_SEED) -> Path:
     """Generate and save the global summary plot."""
     _, shap_values, X = compute_shap(track, n=n, seed=seed)
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -94,7 +87,7 @@ def save_summary_plot(track: str, n: int = 500, seed: int = 42) -> Path:
 
 
 def save_waterfall_plot(
-    track: str, index: int = 0, class_idx: int | None = None, n: int = 500, seed: int = 42
+    track: str, index: int = 0, class_idx: int | None = None, n: int = 500, seed: int = DEFAULT_SEED
 ) -> Path:
     """Generate the waterfall plot for one athlete (row ``index``).
 
@@ -124,7 +117,7 @@ def save_waterfall_plot(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate the SHAP plots.")
-    parser.add_argument("--track", choices=["synthetic", "real"], default="synthetic")
+    parser.add_argument("--track", choices=list(TRACKS), default="synthetic")
     parser.add_argument("--index", type=int, default=0, help="row for the waterfall")
     parser.add_argument("--n", type=int, default=500)
     args = parser.parse_args()
