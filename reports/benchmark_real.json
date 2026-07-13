@@ -19,11 +19,11 @@
   },
   {
     "model": "logistic_regression",
-    "f1_macro": 0.7639,
-    "recall_macro": 0.7832,
-    "roc_auc": 0.8484,
-    "f1_macro_std": 0.0327,
-    "recall_macro_std": 0.0359,
-    "roc_auc_std": 0.0416
+    "f1_macro": 0.767,
+    "recall_macro": 0.7841,
+    "roc_auc": 0.8516,
+    "f1_macro_std": 0.0382,
+    "recall_macro_std": 0.0477,
+    "roc_auc_std": 0.0467
   }
 ]

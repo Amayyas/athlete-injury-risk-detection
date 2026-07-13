@@ -21,9 +21,10 @@ from pathlib import Path
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 from scipy.stats import randint, uniform
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
+from sklearn.model_selection import RandomizedSearchCV
 from xgboost import XGBClassifier
 
+from injury_risk.models.splits import make_cv, make_groups
 from injury_risk.models.train import MODELS_DIR, _prepare_real, _prepare_synthetic
 
 # Search space (prefixed with ``clf__`` to target the pipeline step).
@@ -64,14 +65,17 @@ def best_params_path(track: str) -> Path:
 def tune_track(track: str, n_iter: int = 30, seed: int = 42) -> dict:
     """Run the random search and save the best parameters."""
     if track == "synthetic":
-        X, y, _ = _prepare_synthetic(sample_per_athlete=40, seed=seed)
+        X, y, df = _prepare_synthetic(sample_per_athlete=40, seed=seed)
     elif track == "real":
-        X, y, _ = _prepare_real(seed=seed)
+        X, y, df = _prepare_real(seed=seed)
     else:
         raise ValueError(f"unknown track: {track!r}")
 
     n_classes = int(y.nunique())
-    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
+    # Grouped CV here too: tuning against leaky scores would select the
+    # hyperparameters that memorise athletes best.
+    cv = make_cv(track, seed=seed)
+    groups = make_groups(track, df)
 
     search = RandomizedSearchCV(
         estimator=_base_pipeline(n_classes, seed),
@@ -84,7 +88,7 @@ def tune_track(track: str, n_iter: int = 30, seed: int = 42) -> dict:
         verbose=1,
     )
     print(f"\n=== Tuning '{track}': {n_iter} configurations, scoring=recall_macro ===")
-    search.fit(X, y)
+    search.fit(X, y, groups=groups)
 
     # Keep only the classifier hyperparameters (without the clf__ prefix).
     best = {

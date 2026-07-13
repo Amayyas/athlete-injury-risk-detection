@@ -57,7 +57,7 @@ strategy:
 **Limitations to keep in mind:**
 - The synthetic dataset has labels derived from a rule function: the model partly
   learns that function (interpret performance with caution; the noise prevents a
-  perfect decision boundary — f1_macro ≈ 0.57 in CV, realistic).
+  perfect decision boundary — f1_macro ≈ 0.55 in grouped CV, realistic).
 - SIRP-600 yields very high scores (roc_auc ≈ 0.96), suggesting strongly separable
   features (dataset possibly partly generated) — to be flagged as a limitation
   rather than oversold.
@@ -70,19 +70,36 @@ strategy:
    (workload, soreness, sleep), **ACWR + zone** (under/optimal/elevated/danger),
    **workload trend** over 7 days, position encoding.
 2. **Modeling** (`src/injury_risk/models/train.py`): `XGBoostClassifier` + **SMOTE**,
-   **stratified 5-fold cross-validation**, recall-oriented metrics —
-   `f1_macro`, `recall_macro`, `roc_auc_ovr_weighted`.
+   **5-fold cross-validation grouped by athlete** (see below), recall-oriented
+   metrics — `f1_macro`, `recall_macro`, `roc_auc_ovr_weighted`.
 3. **Explainability** (`src/injury_risk/visualization/shap_plots.py`): `TreeExplainer`,
    global **summary plot** + per-athlete **waterfall plot**.
 4. **Dashboard** (`dashboard/app.py`): live score, colored gauge, active risk
    factors, SHAP plots.
 
+### ⚠️ Validation: grouped by athlete, on purpose
+
+The synthetic dataset holds **many daily rows per athlete**. Splitting those rows
+randomly would put the *same athlete* in both the training and the validation
+fold — the model could then memorise an athlete's baseline profile and recognise
+them at test time. That is **group leakage**, and it silently inflates every score.
+
+The synthetic track is therefore evaluated with **`StratifiedGroupKFold` grouped on
+`athlete_id`** (200 groups): an athlete lands entirely in train or entirely in
+validation, never both. The hold-out split is grouped too.
+
+The real SIRP-600 track is a *snapshot* (one row = one athlete), so grouping is
+meaningless there and plain stratification stays correct.
+
+> Fixing this cost ~2 points on the synthetic track (f1_macro went from 0.569 to
+> 0.553). Those 2 points were never real — they were the leak.
+
 ### Results (seed 42)
 
-| Track | f1_macro | recall_macro | roc_auc | Top SHAP feature |
-|---|---|---|---|---|
-| Synthetic (3 classes) | ~0.57 | ~0.62 | ~0.81 | **ACWR** ✅ |
-| Real SIRP-600 (binary) | ~0.92 | ~0.93 | ~0.96 | Training_Intensity / Recovery |
+| Track | f1_macro | recall_macro | roc_auc | Validation | Top SHAP feature |
+|---|---|---|---|---|---|
+| Synthetic (3 classes) | 0.553 | 0.606 | 0.783 | grouped by athlete | **ACWR** ✅ |
+| Real SIRP-600 (binary) | 0.923 | 0.931 | 0.959 | stratified (snapshot) | Training_Intensity / Recovery |
 
 > The SHAP summary plot confirms the domain narrative: **ACWR is the most
 > decisive variable** of the synthetic model, ahead of injury history and soreness.
@@ -90,16 +107,17 @@ strategy:
 ### Baseline benchmark & model choice
 
 Before settling on XGBoost, three model families were compared under the **same
-protocol** (SMOTE + stratified 5-fold CV), sorted by `recall_macro` (business
-priority). Reproducible via `python -m injury_risk.models.benchmark`.
+protocol** (SMOTE + 5-fold CV, grouped by athlete on the synthetic track), sorted
+by `recall_macro` (business priority). Reproducible via
+`python -m injury_risk.models.benchmark`.
 
 **Synthetic track (3 classes)**
 
 | Model | f1_macro | recall_macro | roc_auc |
 |---|---|---|---|
-| Random Forest | 0.565 ± 0.010 | **0.627 ± 0.013** | 0.798 ± 0.012 |
-| **XGBoost** | **0.569 ± 0.015** | 0.621 ± 0.018 | **0.805 ± 0.009** |
-| Logistic Regression | 0.480 ± 0.006 | 0.550 ± 0.009 | 0.726 ± 0.009 |
+| Random Forest | 0.552 ± 0.012 | **0.611 ± 0.016** | **0.784 ± 0.016** |
+| **XGBoost** | **0.553 ± 0.016** | 0.606 ± 0.024 | 0.783 ± 0.016 |
+| Logistic Regression | 0.485 ± 0.019 | 0.552 ± 0.025 | 0.734 ± 0.015 |
 
 **Real SIRP-600 track (binary)**
 
@@ -107,20 +125,27 @@ priority). Reproducible via `python -m injury_risk.models.benchmark`.
 |---|---|---|---|
 | Random Forest | **0.950 ± 0.029** | **0.954 ± 0.027** | **0.960 ± 0.026** |
 | **XGBoost** | 0.923 ± 0.033 | 0.931 ± 0.030 | 0.959 ± 0.025 |
-| Logistic Regression | 0.764 ± 0.033 | 0.783 ± 0.036 | 0.848 ± 0.042 |
+| Logistic Regression | 0.767 ± 0.038 | 0.784 ± 0.048 | 0.852 ± 0.047 |
+
+> Note on the logistic-regression pipeline: the scaler runs **before** SMOTE.
+> SMOTE interpolates between k-nearest neighbours using Euclidean distance, so on
+> raw features its synthetic samples would be dominated by the large-scale
+> variables (`training_load` in the hundreds vs `sleep_hours` in single digits).
 
 **Honest reading:**
 - Logistic regression clearly trails → a **non-linear** model is justified.
 - Random Forest and XGBoost are **statistically indistinguishable**: on
-  `recall_macro`, the gap (0.006 synthetic, 0.023 real) is **smaller than the
+  `recall_macro`, the gap (0.005 synthetic, 0.023 real) is **smaller than the
   cross-validation standard deviation** in both cases — the intervals overlap
   heavily. Declaring a "winner" on that basis would be over-interpreting noise.
-- **XGBoost is the chosen model**, not because it "wins" but as a tie-breaker at
-  equivalent performance: (1) it beats RF on `f1_macro` *and* `roc_auc` of the
-  **synthetic track** (the project's primary track); (2) its regularization
-  (`min_child_weight`, `gamma`, `subsample`) is better suited to recall-oriented
-  tuning (`src/injury_risk/models/tune.py`); (3) it integrates natively with
-  `shap.TreeExplainer` for explainability.
+- **XGBoost is the chosen model**, and explicitly **not because it wins** — on the
+  synthetic track the three-way gap is now a dead heat (XGBoost leads `f1_macro`
+  by 0.001, Random Forest leads `roc_auc` by 0.001 and `recall_macro` by 0.005;
+  all far below the CV standard deviation). It is a tie-break at equivalent
+  performance, decided on: (1) its regularization (`min_child_weight`, `gamma`,
+  `subsample`), better suited to recall-oriented tuning
+  (`src/injury_risk/models/tune.py`); (2) its native integration with
+  `shap.TreeExplainer`, which the whole explainability story rests on.
 
 ---
 
