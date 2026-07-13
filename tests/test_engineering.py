@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from injury_risk.config import POSITION_TO_CODE
 from injury_risk.features.engineering import (
-    POSITION_TO_CODE,
     acwr_zone,
     add_acwr,
     add_load_trend,

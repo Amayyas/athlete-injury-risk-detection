@@ -30,16 +30,12 @@ from sklearn.model_selection import cross_validate
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
-from injury_risk.models.splits import make_cv, make_groups
-from injury_risk.models.train import (
-    REPORTS_DIR,
-    SCORING,
-    _prepare_real,
-    _prepare_synthetic,
-)
+from injury_risk.config import DEFAULT_SEED, REPORTS_DIR, SCORING
+from injury_risk.data.datasets import TRACKS, load_track
+from injury_risk.models.splits import make_cv
 
 
-def _candidate_models(n_classes: int, seed: int = 42) -> dict[str, ImbPipeline]:
+def _candidate_models(n_classes: int, seed: int = DEFAULT_SEED) -> dict[str, ImbPipeline]:
     """Return the candidate pipelines (SMOTE + model)."""
     objective = "multi:softprob" if n_classes > 2 else "binary:logistic"
 
@@ -101,24 +97,18 @@ def _candidate_models(n_classes: int, seed: int = 42) -> dict[str, ImbPipeline]:
     return models
 
 
-def benchmark_track(track: str, seed: int = 42) -> pd.DataFrame:
+def benchmark_track(track: str, seed: int = DEFAULT_SEED) -> pd.DataFrame:
     """Evaluate the 3 baselines on a track and return a comparison table."""
-    if track == "synthetic":
-        X, y, df = _prepare_synthetic(sample_per_athlete=40, seed=seed)
-    elif track == "real":
-        X, y, df = _prepare_real(seed=seed)
-    else:
-        raise ValueError(f"unknown track: {track!r}")
+    data = load_track(track, seed=seed)
+    X, y = data.X, data.y
 
-    n_classes = int(y.nunique())
     # Same splitter as training: grouped by athlete on the synthetic track, so the
     # baselines are compared under the same (leak-free) protocol.
     cv = make_cv(track, seed=seed)
-    groups = make_groups(track, df)
 
     rows = []
-    for name, pipe in _candidate_models(n_classes, seed).items():
-        res = cross_validate(pipe, X, y, groups=groups, cv=cv, scoring=SCORING, n_jobs=-1)
+    for name, pipe in _candidate_models(data.n_classes, seed).items():
+        res = cross_validate(pipe, X, y, groups=data.groups, cv=cv, scoring=SCORING, n_jobs=-1)
         rows.append(
             {
                 "model": name,
@@ -134,7 +124,7 @@ def benchmark_track(track: str, seed: int = 42) -> pd.DataFrame:
     out = REPORTS_DIR / f"benchmark_{track}.json"
     out.write_text(json.dumps(table.reset_index().to_dict(orient="records"), indent=2))
 
-    print(f"\n=== Benchmark '{track}' ({len(X)} rows, {n_classes} classes) ===")
+    print(f"\n=== Benchmark '{track}' ({len(data)} rows, {data.n_classes} classes) ===")
     print(table[list(SCORING)].to_string())
     best = table.index[0]
     print(f"-> Best recall_macro: {best}")
@@ -144,11 +134,11 @@ def benchmark_track(track: str, seed: int = 42) -> pd.DataFrame:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Baseline model benchmark.")
-    parser.add_argument("--track", choices=["synthetic", "real", "both"], default="both")
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--track", choices=[*TRACKS, "both"], default="both")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     args = parser.parse_args()
 
-    tracks = ["synthetic", "real"] if args.track == "both" else [args.track]
+    tracks = list(TRACKS) if args.track == "both" else [args.track]
     for track in tracks:
         benchmark_track(track, seed=args.seed)
     return 0

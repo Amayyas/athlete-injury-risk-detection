@@ -11,21 +11,14 @@ Launch:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import streamlit as st
 
+from injury_risk.config import FIGURES_DIR, POSITIONS, RISK_LABELS
 from injury_risk.features.engineering import (
-    POSITIONS,
-    RISK_LABELS,
     acwr_zone,
     composite_risk_score,
     risk_score_to_level,
 )
-
-ROOT = Path(__file__).resolve().parents[1]
-
-FIGURES_DIR = ROOT / "reports" / "figures"
 
 st.set_page_config(page_title="Athlete Injury Risk", page_icon="🩺", layout="wide")
 

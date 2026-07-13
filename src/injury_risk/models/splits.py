@@ -5,18 +5,18 @@ Why this module exists
 The synthetic dataset holds **many daily rows per athlete**. Splitting those rows
 randomly (plain ``StratifiedKFold``) puts the *same athlete* in both the training
 and the validation fold: the model can memorise an athlete's baseline profile
-(their resting HR, their proneness, their typical load) and recognise them in
-the test fold. That is **group leakage**, and it inflates every score.
+(their resting HR, their proneness, their typical load) and recognise them in the
+test fold. That is **group leakage**, and it inflates every score.
 
-Sub-sampling a few days per athlete — as the pipeline does — reduces the
+Sub-sampling a few days per athlete — as the loaders do — reduces the
 autocorrelation between consecutive days, but it does **not** fix this: the
 athlete is still present on both sides of the split.
 
-The fix is to group by ``athlete_id`` so that an athlete lands entirely in the
-training set or entirely in the validation set, never both.
+The fix is to group by athlete, so an athlete lands entirely in the training set
+or entirely in the validation set, never both.
 
-The real SIRP-600 track is a **snapshot** (one row = one athlete), so grouping is
-meaningless there and plain stratification stays correct.
+Which tracks need grouping is a property of the *data*, so it is defined in
+:mod:`injury_risk.data.datasets`; this module only turns it into splitters.
 """
 
 from __future__ import annotations
@@ -25,20 +25,15 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import BaseCrossValidator, StratifiedGroupKFold, StratifiedKFold
 
-# The column identifying an athlete in the synthetic track.
-GROUP_COL = "athlete_id"
-
-# Tracks whose rows are repeated measures of the same subject, and therefore
-# require grouped splitting.
-GROUPED_TRACKS = frozenset({"synthetic"})
+from injury_risk.config import CV_N_SPLITS, DEFAULT_SEED
+from injury_risk.data.datasets import needs_grouping
 
 
-def needs_grouping(track: str) -> bool:
-    """Whether a track has several rows per athlete (and so needs grouped CV)."""
-    return track in GROUPED_TRACKS
-
-
-def make_cv(track: str, seed: int = 42, n_splits: int = 5) -> BaseCrossValidator:
+def make_cv(
+    track: str,
+    seed: int = DEFAULT_SEED,
+    n_splits: int = CV_N_SPLITS,
+) -> BaseCrossValidator:
     """Return the correct cross-validator for a track.
 
     - ``synthetic`` -> ``StratifiedGroupKFold`` (no athlete spans two folds);
@@ -49,21 +44,12 @@ def make_cv(track: str, seed: int = 42, n_splits: int = 5) -> BaseCrossValidator
     return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
 
-def make_groups(track: str, df: pd.DataFrame) -> np.ndarray | None:
-    """Return the group labels to pass to the splitter, or ``None`` if not needed."""
-    if not needs_grouping(track):
-        return None
-    if GROUP_COL not in df.columns:
-        raise ValueError(f"track {track!r} requires a {GROUP_COL!r} column for grouped CV")
-    return df[GROUP_COL].to_numpy()
-
-
 def grouped_train_test_split(
     X: pd.DataFrame,
     y: pd.Series,
     groups: np.ndarray | None,
-    seed: int = 42,
-    n_splits: int = 5,
+    seed: int = DEFAULT_SEED,
+    n_splits: int = CV_N_SPLITS,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """A single stratified hold-out split that also keeps athletes intact.
 
@@ -71,6 +57,7 @@ def grouped_train_test_split(
     preserving both stratification and grouping — which a plain
     ``train_test_split(stratify=y)`` cannot do.
     """
-    splitter = make_cv("synthetic" if groups is not None else "real", seed=seed, n_splits=n_splits)
+    track = "synthetic" if groups is not None else "real"
+    splitter = make_cv(track, seed=seed, n_splits=n_splits)
     train_idx, test_idx = next(splitter.split(X, y, groups))
     return X.iloc[train_idx], X.iloc[test_idx], y.iloc[train_idx], y.iloc[test_idx]

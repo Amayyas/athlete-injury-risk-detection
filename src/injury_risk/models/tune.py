@@ -24,8 +24,9 @@ from scipy.stats import randint, uniform
 from sklearn.model_selection import RandomizedSearchCV
 from xgboost import XGBClassifier
 
-from injury_risk.models.splits import make_cv, make_groups
-from injury_risk.models.train import MODELS_DIR, _prepare_real, _prepare_synthetic
+from injury_risk.config import DEFAULT_SEED, MODELS_DIR
+from injury_risk.data.datasets import TRACKS, load_track
+from injury_risk.models.splits import make_cv
 
 # Search space (prefixed with ``clf__`` to target the pipeline step).
 PARAM_DISTRIBUTIONS = {
@@ -62,23 +63,17 @@ def best_params_path(track: str) -> Path:
     return MODELS_DIR / f"best_params_{track}.json"
 
 
-def tune_track(track: str, n_iter: int = 30, seed: int = 42) -> dict:
+def tune_track(track: str, n_iter: int = 30, seed: int = DEFAULT_SEED) -> dict:
     """Run the random search and save the best parameters."""
-    if track == "synthetic":
-        X, y, df = _prepare_synthetic(sample_per_athlete=40, seed=seed)
-    elif track == "real":
-        X, y, df = _prepare_real(seed=seed)
-    else:
-        raise ValueError(f"unknown track: {track!r}")
+    data = load_track(track, seed=seed)
+    X, y = data.X, data.y
 
-    n_classes = int(y.nunique())
     # Grouped CV here too: tuning against leaky scores would select the
     # hyperparameters that memorise athletes best.
     cv = make_cv(track, seed=seed)
-    groups = make_groups(track, df)
 
     search = RandomizedSearchCV(
-        estimator=_base_pipeline(n_classes, seed),
+        estimator=_base_pipeline(data.n_classes, seed),
         param_distributions=PARAM_DISTRIBUTIONS,
         n_iter=n_iter,
         scoring="recall_macro",  # business priority
@@ -88,7 +83,7 @@ def tune_track(track: str, n_iter: int = 30, seed: int = 42) -> dict:
         verbose=1,
     )
     print(f"\n=== Tuning '{track}': {n_iter} configurations, scoring=recall_macro ===")
-    search.fit(X, y, groups=groups)
+    search.fit(X, y, groups=data.groups)
 
     # Keep only the classifier hyperparameters (without the clf__ prefix).
     best = {
@@ -119,12 +114,12 @@ def load_best_params(track: str) -> dict | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="XGBoost tuning (recall-first).")
-    parser.add_argument("--track", choices=["synthetic", "real", "both"], default="both")
+    parser.add_argument("--track", choices=[*TRACKS, "both"], default="both")
     parser.add_argument("--n-iter", type=int, default=30)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     args = parser.parse_args()
 
-    tracks = ["synthetic", "real"] if args.track == "both" else [args.track]
+    tracks = list(TRACKS) if args.track == "both" else [args.track]
     for track in tracks:
         tune_track(track, n_iter=args.n_iter, seed=args.seed)
     return 0

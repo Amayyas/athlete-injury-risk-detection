@@ -24,22 +24,21 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from injury_risk.features.engineering import (
+from injury_risk.config import (
+    ACUTE_WINDOW,
+    CHRONIC_WINDOW,
+    DEFAULT_SEED,
+    INJURY_PRONE_RATE,
+    LABEL_NOISE_SIGMA,
+    N_ATHLETES,
+    N_DAYS,
+    POSITION_BASE_LOAD,
     POSITIONS,
-    composite_risk_score,
-    risk_score_to_level,
+    SYNTHETIC_DATASET,
 )
+from injury_risk.features.engineering import composite_risk_score, risk_score_to_level
 
-PROCESSED_DIR = Path(__file__).resolve().parents[3] / "data" / "processed"
-DEFAULT_OUTPUT = PROCESSED_DIR / "synthetic_athletes.parquet"
-
-# Average "target" weekly load per position (intensity proxy).
-POSITION_BASE_LOAD = {
-    "goalkeeper": 320.0,
-    "defender": 420.0,
-    "midfielder": 520.0,  # midfielders cover the most distance
-    "forward": 470.0,
-}
+DEFAULT_OUTPUT = SYNTHETIC_DATASET
 
 
 def _simulate_athlete(athlete_id: int, n_days: int, rng: np.random.Generator) -> pd.DataFrame:
@@ -47,7 +46,7 @@ def _simulate_athlete(athlete_id: int, n_days: int, rng: np.random.Generator) ->
     position = rng.choice(POSITIONS)
     age = int(np.clip(rng.normal(24, 4), 17, 38))
     base_fitness = float(np.clip(rng.normal(0.7, 0.12), 0.3, 1.0))
-    injury_prone = bool(rng.random() < 0.30)  # ~30% prone
+    injury_prone = bool(rng.random() < INJURY_PRONE_RATE)
     previous_injuries = int(rng.poisson(2 if injury_prone else 0.6))
     baseline_hr = float(np.clip(rng.normal(55, 5), 42, 70))
 
@@ -114,10 +113,10 @@ def _label_rows(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     df = df.sort_values(["athlete_id", "day"]).reset_index(drop=True)
 
     acute = df.groupby("athlete_id")["training_load"].transform(
-        lambda s: s.rolling(7, min_periods=1).mean()
+        lambda s: s.rolling(ACUTE_WINDOW, min_periods=1).mean()
     )
     chronic = df.groupby("athlete_id")["training_load"].transform(
-        lambda s: s.rolling(28, min_periods=1).mean()
+        lambda s: s.rolling(CHRONIC_WINDOW, min_periods=1).mean()
     )
     df["acwr_raw"] = (acute / chronic.replace(0, np.nan)).fillna(1.0)
 
@@ -137,7 +136,7 @@ def _label_rows(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
 
     raw_scores = np.asarray(scores)
     # Gaussian noise to avoid a perfect decision boundary (realism).
-    noisy = np.clip(raw_scores + rng.normal(0, 0.06, size=len(raw_scores)), 0, 1)
+    noisy = np.clip(raw_scores + rng.normal(0, LABEL_NOISE_SIGMA, size=len(raw_scores)), 0, 1)
     df["risk_score"] = noisy.round(4)
     # Default thresholds (cf. risk_score_to_level), calibrated to obtain a
     # realistic imbalance (~70% low / ~22% moderate / ~8% high), shared with the
@@ -146,7 +145,9 @@ def _label_rows(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     return df.drop(columns=["acwr_raw"])
 
 
-def generate(n_athletes: int = 200, n_days: int = 730, seed: int = 42) -> pd.DataFrame:
+def generate(
+    n_athletes: int = N_ATHLETES, n_days: int = N_DAYS, seed: int = DEFAULT_SEED
+) -> pd.DataFrame:
     """Generate the full synthetic dataset."""
     rng = np.random.default_rng(seed)
     frames = [_simulate_athlete(aid, n_days, rng) for aid in range(n_athletes)]
@@ -159,9 +160,9 @@ def generate(n_athletes: int = 200, n_days: int = 730, seed: int = 42) -> pd.Dat
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate the synthetic dataset.")
-    parser.add_argument("--athletes", type=int, default=200)
-    parser.add_argument("--days", type=int, default=730)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--athletes", type=int, default=N_ATHLETES)
+    parser.add_argument("--days", type=int, default=N_DAYS)
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
