@@ -17,8 +17,12 @@ via SHAP** so the output is usable by a sports medical staff — not just a blac
 
 ## 🎯 Goal & design choices
 
-Predict a risk level (**low / moderate / high**) grounded in the real domain
-knowledge used by strength & conditioning staff. The project rests on 3 pillars:
+Answer the question a medical staff actually asks:
+
+> **Is this athlete about to get injured in the next 7 days?**
+
+grounded in the real domain knowledge used by strength & conditioning staff. The
+project rests on 3 pillars:
 
 1. **Real domain knowledge** — use of the **ACWR** (*Acute:Chronic Workload
    Ratio*), a metric actually used by staff: optimal zone **0.8–1.3**, danger
@@ -26,6 +30,10 @@ knowledge used by strength & conditioning staff. The project rests on 3 pillars:
 2. **Explainability (SHAP)** over raw *accuracy* — in a medical context,
    **recall** (not missing an injury) matters more than overall precision.
 3. **A visual, interactive deliverable** — a **Streamlit** dashboard, not just a notebook.
+
+Alongside the model, a rule-based **composite risk score** (low / moderate / high)
+powers the dashboard's live assessment — and doubles as the **baseline the model has
+to beat**.
 
 ---
 
@@ -46,21 +54,79 @@ An **audit of the 4 candidate Kaggle datasets** was done before any processing:
 and the 7/14/28-day *rolling features* need one. Hence a deliberate **dual-track**
 strategy:
 
-- **🧪 Synthetic track (primary)** — a generator produces 200 athletes × 730
-  days, the only basis allowing a realistic temporal ACWR/rolling, **3 imbalanced
-  classes** (~70 / 22 / 8) that justify the use of SMOTE, and which feeds the
-  dashboard. Labels = composite risk score (business rules) + Gaussian noise.
-- **🌍 Real SIRP-600 track (validation)** — demonstrates the same approach
-  (SMOTE + XGBoost + SHAP) on **real, imperfect data** that is naturally
-  imbalanced. Limitations: *snapshot* (no ACWR possible) and a **binary** target.
+- **🧪 Synthetic track (primary)** — a generator simulates 200 athletes × 730 days
+  with **actual injury events** (see below). The only basis allowing a realistic
+  temporal ACWR, and a genuinely predictive task.
+- **🌍 Real SIRP-600 track (validation)** — demonstrates the same approach on
+  **real, imperfect data** that is naturally imbalanced. Limitations: *snapshot*
+  (no ACWR possible) and a target that is a risk *label*, not an observed injury.
+
+---
+
+## 🎯 The target: a real predictive task
+
+**This is the most important design decision in the project, and it was originally
+wrong.**
+
+The first version of the generator labelled each day by discretising the rule-based
+`composite_risk_score` **of that same day**, then trained the model on the very
+variables that score was computed from. The model was not predicting injuries — it
+was **re-learning the scoring function**. Its accuracy measured how well XGBoost can
+imitate a formula. The whole result was circular.
+
+### What it does now
+
+The rules no longer *are* the label; they drive a **discrete-time logistic hazard**:
+
+```
+logit( P(injury on day t) ) = intercept + slope · latent_risk(t)
+```
+
+Each day, an athlete may actually get injured. An injured athlete is **sidelined**
+for a recovery period, comes back with `previous_injuries` incremented and
+`days_since_injury` reset — which feeds back into their future risk, exactly as in
+real life.
+
+The target becomes an **observed outcome**:
+
+> **`injury_next_7d`** — will this athlete get injured within the next 7 days,
+> given everything known up to (and including) today?
+
+| | before | now |
+|---|---|---|
+| Target | rule score of the same day | an **observed injury event** |
+| Relationship to features | deterministic (+ noise) | **stochastic** |
+| What the model learns | the formula it was given | a real, noisy signal |
+| Positive rate | 8% (by threshold choice) | **~5%** (by simulation) |
+
+Injuries land at **~1.3 per athlete per season**, athletes are sidelined ~13% of
+days, and the target is positive on ~5% of modellable athlete-days.
+
+### Calibrating the hazard honestly
+
+The intercept and the slope are separated on purpose: the **intercept sets the base
+rate**, the **slope sets how much risk actually predicts injury**. A naive
+multiplicative hazard cannot separate the two — keeping a realistic injury rate
+forces a high base, so most injuries fall on low-risk days and the signal drowns. In
+that first attempt, even a model that *knew the true latent risk* only reached
+ROC-AUC 0.57: **the task was unlearnable by construction**, and no algorithm could
+have saved it.
+
+The slope is now calibrated so the signal is real but far from perfect — which is
+what injury prediction actually looks like.
+
+**Rows that cannot be modelled are dropped**, not silently kept: the ACWR warm-up,
+days the athlete is *already* injured (they are not exposed to a *new* injury), and
+the censored tail whose 7-day horizon runs past the end of the simulation.
 
 **Limitations to keep in mind:**
-- The synthetic dataset has labels derived from a rule function: the model partly
-  learns that function (interpret performance with caution; the noise prevents a
-  perfect decision boundary — f1_macro ≈ 0.55 in grouped CV, realistic).
+- The synthetic hazard is **logit-linear in the latent risk by construction**. That
+  is a strong hint the data-generating process gives to linear models — and the
+  benchmark below shows exactly that. It is a property of the simulation, not
+  evidence about injury prediction in the real world.
 - SIRP-600 yields very high scores (roc_auc ≈ 0.96), suggesting strongly separable
-  features (dataset possibly partly generated) — to be flagged as a limitation
-  rather than oversold.
+  features (dataset possibly partly generated) — flagged as a limitation rather than
+  oversold. Its target is a risk *label*, not an observed injury.
 
 ---
 
@@ -70,82 +136,73 @@ strategy:
    (workload, soreness, sleep), **ACWR + zone** (under/optimal/elevated/danger),
    **workload trend** over 7 days, position encoding.
 2. **Modeling** (`src/injury_risk/models/train.py`): `XGBoostClassifier` + **SMOTE**,
-   **5-fold cross-validation grouped by athlete** (see below), recall-oriented
-   metrics — `f1_macro`, `recall_macro`, `roc_auc_ovr_weighted`.
+   **5-fold cross-validation grouped by athlete** (see below). The positive class is
+   rare (~5%), so **PR-AUC (average precision) is the headline metric** — ROC-AUC is
+   over-optimistic under that kind of imbalance.
 3. **Explainability** (`src/injury_risk/visualization/shap_plots.py`): `TreeExplainer`,
    global **summary plot** + per-athlete **waterfall plot**.
 4. **Dashboard** (`dashboard/app.py`): live score, colored gauge, active risk
    factors, SHAP plots.
 
-### ⚠️ Validation: grouped by athlete, on purpose
+### ⚠️ Two leakage guarantees, both tested
 
-The synthetic dataset holds **many daily rows per athlete**. Splitting those rows
-randomly would put the *same athlete* in both the training and the validation
-fold — the model could then memorise an athlete's baseline profile and recognise
-them at test time. That is **group leakage**, and it silently inflates every score.
+**No athlete spans a split.** The synthetic dataset holds many daily rows per
+athlete; splitting them randomly would put the same athlete in both the training and
+the validation fold, letting the model memorise their baseline profile and recognise
+them at test time. The synthetic track therefore uses **`StratifiedGroupKFold` grouped
+on `athlete_id`** (200 groups); the hold-out split is grouped too. The real SIRP-600
+track is a snapshot (one row = one athlete), so grouping is meaningless there.
 
-The synthetic track is therefore evaluated with **`StratifiedGroupKFold` grouped on
-`athlete_id`** (200 groups): an athlete lands entirely in train or entirely in
-validation, never both. The hold-out split is grouped too.
+**No feature sees the future.** Every feature at day *t* is computed from data up to
+and including *t*; the target looks strictly forward. A test corrupts every day after
+a cutoff and asserts that not one feature before it moves.
 
-The real SIRP-600 track is a *snapshot* (one row = one athlete), so grouping is
-meaningless there and plain stratification stays correct.
+And the hazard driver (`latent_risk`) is **never** a feature — otherwise the target
+would be circular again.
 
-> Fixing this cost ~2 points on the synthetic track (f1_macro went from 0.569 to
-> 0.553). Those 2 points were never real — they were the leak.
+### Results (seed 42, grouped CV)
 
-### Results (seed 42)
+A PR-AUC means nothing without knowing what chance and what the domain rules already
+achieve on the same rows. So the model is reported **between two reference points**:
 
-| Track | f1_macro | recall_macro | roc_auc | Validation | Top SHAP feature |
-|---|---|---|---|---|---|
-| Synthetic (3 classes) | 0.553 | 0.606 | 0.783 | grouped by athlete | **ACWR** ✅ |
-| Real SIRP-600 (binary) | 0.923 | 0.931 | 0.959 | stratified (snapshot) | Training_Intensity / Recovery |
+**Synthetic track — "injury within 7 days", 4.9% positive**
 
-> The SHAP summary plot confirms the domain narrative: **ACWR is the most
-> decisive variable** of the synthetic model, ahead of injury history and soreness.
-
-### Baseline benchmark & model choice
-
-Before settling on XGBoost, three model families were compared under the **same
-protocol** (SMOTE + 5-fold CV, grouped by athlete on the synthetic track), sorted
-by `recall_macro` (business priority). Reproducible via
-`python -m injury_risk.models.benchmark`.
-
-**Synthetic track (3 classes)**
-
-| Model | f1_macro | recall_macro | roc_auc |
+| | PR-AUC | ROC-AUC | Recall |
 |---|---|---|---|
-| Random Forest | 0.552 ± 0.012 | **0.611 ± 0.016** | **0.784 ± 0.016** |
-| **XGBoost** | **0.553 ± 0.016** | 0.606 ± 0.024 | 0.783 ± 0.016 |
-| Logistic Regression | 0.485 ± 0.019 | 0.552 ± 0.025 | 0.734 ± 0.015 |
+| Chance (prevalence) | 0.049 | 0.500 | — |
+| **Domain rules** (`composite_risk_score`) | 0.287 | 0.830 | — |
+| XGBoost + SMOTE | 0.291 ± 0.072 | 0.799 ± 0.015 | 0.599 |
+| **Logistic Regression + SMOTE** | **0.367 ± 0.034** | **0.841 ± 0.011** | **0.697** |
 
-**Real SIRP-600 track (binary)**
+**Real SIRP-600 track — binary risk label, 31.5% positive**
 
-| Model | f1_macro | recall_macro | roc_auc |
+| | PR-AUC | ROC-AUC | Recall |
 |---|---|---|---|
-| Random Forest | **0.950 ± 0.029** | **0.954 ± 0.027** | **0.960 ± 0.026** |
-| **XGBoost** | 0.923 ± 0.033 | 0.931 ± 0.030 | 0.959 ± 0.025 |
-| Logistic Regression | 0.767 ± 0.038 | 0.784 ± 0.048 | 0.852 ± 0.047 |
+| Chance (prevalence) | 0.315 | 0.500 | — |
+| XGBoost + SMOTE | 0.919 ± 0.081 | 0.959 ± 0.025 | 0.931 |
+| **Random Forest + SMOTE** | **0.934 ± 0.077** | **0.960 ± 0.026** | **0.947** |
 
-> Note on the logistic-regression pipeline: the scaler runs **before** SMOTE.
-> SMOTE interpolates between k-nearest neighbours using Euclidean distance, so on
-> raw features its synthetic samples would be dominated by the large-scale
-> variables (`training_load` in the hundreds vs `sleep_hours` in single digits).
+### 🔎 An uncomfortable result, reported rather than buried
 
-**Honest reading:**
-- Logistic regression clearly trails → a **non-linear** model is justified.
-- Random Forest and XGBoost are **statistically indistinguishable**: on
-  `recall_macro`, the gap (0.005 synthetic, 0.023 real) is **smaller than the
-  cross-validation standard deviation** in both cases — the intervals overlap
-  heavily. Declaring a "winner" on that basis would be over-interpreting noise.
-- **XGBoost is the chosen model**, and explicitly **not because it wins** — on the
-  synthetic track the three-way gap is now a dead heat (XGBoost leads `f1_macro`
-  by 0.001, Random Forest leads `roc_auc` by 0.001 and `recall_macro` by 0.005;
-  all far below the CV standard deviation). It is a tie-break at equivalent
-  performance, decided on: (1) its regularization (`min_child_weight`, `gamma`,
-  `subsample`), better suited to recall-oriented tuning
-  (`src/injury_risk/models/tune.py`); (2) its native integration with
-  `shap.TreeExplainer`, which the whole explainability story rests on.
+**On the synthetic track, logistic regression beats XGBoost — clearly.** PR-AUC
+0.367 vs 0.291, ROC-AUC 0.841 vs 0.799 (a gap of ~3 standard deviations: not noise).
+It also beats the domain rules by **+28% PR-AUC**, where XGBoost barely matches them
+(+1%).
+
+The reason is not mysterious, and it is a limitation of the *simulation*, not a
+finding about injury prediction: the hazard is **logit-linear in the latent risk by
+construction**, and that latent risk is itself close to additive in the features. The
+logistic model is therefore nearly *correctly specified*. Gradient boosting spends its
+capacity fitting noise around a relationship a linear model captures exactly.
+
+On the **real** dataset, the ranking flips back: tree models win (RF 0.934 / XGBoost
+0.919 vs LogReg 0.754). Which is the honest summary — **the best model depends on the
+data, and reaching for XGBoost by default is a reflex, not a decision.**
+
+> Model selection is deliberately *not* settled in this PR: tuning and calibration
+> ([#16](https://github.com/Amayyas/athlete-injury-risk-detection/issues/16)) may
+> still change the picture, and the delivered artefact should be the winner of a
+> tuned comparison, not of an untuned one.
 
 ---
 

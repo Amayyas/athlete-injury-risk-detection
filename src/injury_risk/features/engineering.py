@@ -127,16 +127,34 @@ def encode_position(df: pd.DataFrame, col: str = "position") -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 
 
+def add_hr_delta(df: pd.DataFrame) -> pd.DataFrame:
+    """Add ``hr_delta``: resting HR above the athlete's own baseline.
+
+    A resting HR of 70 means nothing on its own — it is alarming for someone whose
+    baseline is 50, and normal for someone whose baseline is 68. The *delta* is what
+    physiologists read, and it is what the rule-based score uses.
+    """
+    df = df.copy()
+    if "baseline_hr" in df.columns:
+        df["hr_delta"] = df["resting_hr"] - df["baseline_hr"]
+    return df
+
+
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
     """Apply the whole temporal feature engineering on the daily data.
 
     Expects the columns: athlete_id, date, position, training_load, soreness,
     sleep_hours, resting_hr (+ any static columns, which are kept).
+
+    Every feature at day ``t`` is computed from data up to and including ``t`` —
+    never from the future. See :mod:`injury_risk.data.generate_synthetic` for how the
+    (strictly forward-looking) target is built.
     """
     df = df.sort_values(["athlete_id", "date"]).reset_index(drop=True)
     df = add_acwr(df)
     df = add_rolling_features(df)
     df = add_load_trend(df)
+    df = add_hr_delta(df)
     if "position" in df.columns:
         df = encode_position(df)
     return df
@@ -146,6 +164,10 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 SYNTHETIC_FEATURE_COLS = [
     "age",
     "position_code",
+    # Athlete profile. These drive the injury hazard, and a real staff *does* know
+    # them — hiding them was capping the model below the achievable ceiling.
+    "injury_prone",
+    "baseline_hr",
     "previous_injuries",
     "days_since_injury",
     "training_load",
@@ -162,4 +184,5 @@ SYNTHETIC_FEATURE_COLS = [
     "chronic_load",
     "acwr",
     "load_trend_7d",
+    "hr_delta",
 ]

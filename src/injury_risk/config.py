@@ -117,7 +117,38 @@ RISK_LABELS = {0: "Low", 1: "Moderate", 2: "High"}
 N_ATHLETES = 200
 N_DAYS = 730  # two seasons
 INJURY_PRONE_RATE = 0.30  # share of athletes flagged as injury-prone
-LABEL_NOISE_SIGMA = 0.06  # Gaussian noise on the score, to avoid a perfect boundary
+
+# --- Injury process -------------------------------------------------------- #
+# Injuries are *events*, drawn day by day from a **discrete-time logistic hazard**
+# driven by the latent risk (the rule-based composite score):
+#
+#   logit( P(injury on day t) ) = HAZARD_INTERCEPT + HAZARD_SLOPE * latent_risk(t)
+#
+# The label is therefore an observed outcome, not a deterministic function of the
+# features — see MODEL TARGET below.
+#
+# The two parameters are deliberately independent, and that is the whole point:
+#   - the INTERCEPT sets the *base rate*    -> ~1.3 injuries per athlete per season;
+#   - the SLOPE sets the *contrast*         -> how much risk actually predicts injury.
+# A purely multiplicative hazard could not separate the two: keeping a realistic
+# injury rate forced a high base, so most injuries fell on low-risk athlete-days and
+# the signal drowned (an oracle knowing the latent risk only reached ROC-AUC 0.57 —
+# i.e. the task was unlearnable *by construction*).
+#
+# Calibrated so that an oracle with perfect knowledge of the latent risk reaches
+# ROC-AUC ~0.80 / PR-AUC ~0.23. That is the ceiling of this dataset, and it matches
+# the order of magnitude reported by the real injury-prediction literature: a real
+# signal, far from perfect, with a large irreducible random component.
+HAZARD_INTERCEPT = -7.4
+HAZARD_SLOPE = 8.0
+INJURY_RECOVERY_DAYS = (7, 45)  # sidelined for this many days (uniform draw)
+
+# --- Model target ---------------------------------------------------------- #
+# "Will this athlete get injured within the next N days?", predicted from what is
+# known up to (and including) day t. This is what makes the task genuinely
+# predictive rather than a re-fit of the scoring rules.
+PREDICTION_HORIZON_DAYS = 7
+TARGET_COL = "injury_next_7d"
 
 # --------------------------------------------------------------------------- #
 # Training & evaluation
@@ -129,14 +160,18 @@ CV_N_SPLITS = 5
 # the series rather than feeding 730 near-duplicate rows per athlete.
 # (This thins autocorrelation; it does NOT prevent athlete leakage — grouped CV
 # does, see injury_risk.models.splits.)
-SAMPLE_PER_ATHLETE = 40
+SAMPLE_PER_ATHLETE = 100
 
-# Recall-oriented metrics: in a medical context, missing an injury costs more than
-# raising a false alarm.
+# Both tracks are binary, and their positive class is rare (~4% of athlete-days for
+# the synthetic injury target). ROC-AUC is over-optimistic under that kind of
+# imbalance, so **average precision (PR-AUC) is the headline metric**; ROC-AUC is
+# kept for comparability. Recall stays a priority: in a medical context, missing an
+# injury costs more than raising a false alarm.
 SCORING = {
-    "f1_macro": "f1_macro",
-    "recall_macro": "recall_macro",
-    "roc_auc": "roc_auc_ovr_weighted",
+    "average_precision": "average_precision",  # PR-AUC — the metric that matters here
+    "roc_auc": "roc_auc",
+    "recall": "recall",
+    "f1": "f1",
 }
 
 XGB_DEFAULT_PARAMS = {

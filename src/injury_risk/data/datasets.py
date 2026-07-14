@@ -12,7 +12,8 @@ needed for leak-free cross-validation.
 Two tracks:
 
 - ``synthetic`` — the generated daily time series (many rows per athlete, so it
-  **requires grouped CV**);
+  **requires grouped CV**). The target is an observed event: "will this athlete get
+  injured within the next 7 days?";
 - ``real`` — SIRP-600, a snapshot (one row = one athlete, so grouping is
   meaningless).
 """
@@ -24,7 +25,13 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from injury_risk.config import DEFAULT_SEED, SAMPLE_PER_ATHLETE, SYNTHETIC_DATASET, WARMUP_DAYS
+from injury_risk.config import (
+    DEFAULT_SEED,
+    SAMPLE_PER_ATHLETE,
+    SYNTHETIC_DATASET,
+    TARGET_COL,
+    WARMUP_DAYS,
+)
 from injury_risk.data.generate_synthetic import generate
 from injury_risk.data.load_dataset import SIRP_FEATURE_COLS, SIRP_TARGET, load_sirp600
 from injury_risk.features.engineering import SYNTHETIC_FEATURE_COLS, build_features
@@ -91,7 +98,16 @@ def load_synthetic(
         frame = generate(seed=seed)
 
     frame = build_features(frame)
-    frame = frame[frame["day"] >= WARMUP_DAYS].copy()
+
+    # Rows we cannot legitimately model:
+    #  - the warm-up, where the chronic load (and so the ACWR) is not yet stable;
+    #  - days the athlete is already sidelined — they are not exposed to a *new*
+    #    injury, so asking "will they get injured?" is meaningless;
+    #  - the censored tail, whose 7-day horizon runs past the end of the simulation,
+    #    so its label would be a guess.
+    frame = frame[
+        (frame["day"] >= WARMUP_DAYS) & (~frame["is_injured"]) & (frame["horizon_complete"])
+    ].copy()
 
     if sample_per_athlete:
         sampled_idx = (
@@ -106,7 +122,7 @@ def load_synthetic(
     return Dataset(
         track="synthetic",
         X=frame[SYNTHETIC_FEATURE_COLS],
-        y=frame["risk_level"],
+        y=frame[TARGET_COL],
         frame=frame,
         groups=make_groups("synthetic", frame),
     )
