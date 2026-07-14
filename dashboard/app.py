@@ -1,9 +1,12 @@
 """Streamlit dashboard — Injury risk detection.
 
-The app is **functional even without a trained model**: the risk score is then
-computed live from the business rules (ACWR, sleep, soreness…) defined in
-:mod:`injury_risk.features.engineering`. If an XGBoost model has been trained, a section
-additionally displays the SHAP plots.
+The app is **functional even without a trained model**: the risk score is computed
+live from the business rules defined in :mod:`injury_risk.features.risk_factors`.
+If an XGBoost model has been trained, a section additionally displays the SHAP
+plots.
+
+This file is deliberately thin: it renders, it does not decide. The scoring and
+the risk-factor logic live in the package, where they can be tested.
 
 Launch:
     streamlit run dashboard/app.py
@@ -14,11 +17,8 @@ from __future__ import annotations
 import streamlit as st
 
 from injury_risk.config import FIGURES_DIR, POSITIONS, RISK_LABELS
-from injury_risk.features.engineering import (
-    acwr_zone,
-    composite_risk_score,
-    risk_score_to_level,
-)
+from injury_risk.features.engineering import acwr_zone
+from injury_risk.features.risk_factors import HIGH, INFO, assess
 
 st.set_page_config(page_title="Athlete Injury Risk", page_icon="🩺", layout="wide")
 
@@ -46,21 +46,24 @@ previous_injuries = st.sidebar.number_input("Previous injuries", 0, 20, 1)
 days_since_injury = st.sidebar.number_input("Days since last injury", 0, 2000, 200)
 
 # --------------------------------------------------------------------------- #
-# Computations (live ACWR + risk score, business rules)
+# Scoring — all the logic lives in the package, this file only renders it.
 # --------------------------------------------------------------------------- #
 acwr = acute_load / chronic_load if chronic_load else 1.0
 zone = acwr_zone(acwr)
-score = composite_risk_score(
+
+# One evaluation produces the score, its level and its explanation — so the gauge
+# and the factor list below are, by construction, the same computation.
+assessment = assess(
     acwr=acwr,
     soreness=soreness,
     sleep_hours=sleep_hours,
     resting_hr=resting_hr,
     baseline_hr=baseline_hr,
     injury_prone=injury_prone,
-    previous_injuries=previous_injuries,
-    days_since_injury=days_since_injury,
+    previous_injuries=int(previous_injuries),
+    days_since_injury=float(days_since_injury),
 )
-level = risk_score_to_level(score)
+score, level, factors = assessment.score, assessment.level, assessment.factors
 
 ZONE_COLORS = {
     "under": "#3b82f6",
@@ -70,6 +73,7 @@ ZONE_COLORS = {
     "unknown": "#9ca3af",
 }
 LEVEL_COLORS = {0: "#22c55e", 1: "#f59e0b", 2: "#ef4444"}
+SEVERITY_ICONS = {HIGH: "🔴", INFO: "🔵"}
 
 # --------------------------------------------------------------------------- #
 # Main body
@@ -107,35 +111,24 @@ with col3:
 st.divider()
 
 # --------------------------------------------------------------------------- #
-# Active risk factors
+# Active risk factors — this *is* the score's decomposition, so it can never
+# contradict the gauge above.
 # --------------------------------------------------------------------------- #
 st.subheader("Active risk factors")
 
-factors: list[tuple[str, str]] = []
-if acwr >= 1.5:
-    factors.append(("🔴 ACWR in danger zone (> 1.5)", "Acute load too high vs usual"))
-elif acwr >= 1.3:
-    factors.append(("🟠 Elevated ACWR (1.3–1.5)", "Rising load to monitor"))
-elif acwr < 0.8:
-    factors.append(("🔵 Low ACWR (< 0.8)", "Possible under-loading / detraining"))
-if soreness >= 6:
-    factors.append(("🟠 High soreness", f"Level {soreness}/10"))
-if sleep_hours < 7:
-    factors.append(("🟠 Insufficient sleep", f"{sleep_hours} h/night (< 7 h)"))
-if resting_hr - baseline_hr >= 8:
-    factors.append(("🟠 Elevated resting HR", "Sign of fatigue/stress"))
-if injury_prone:
-    factors.append(("🟠 Injury proneness", "At-risk profile"))
-if days_since_injury < 60:
-    factors.append(("🔴 Recent return from injury", f"{days_since_injury} days (< 60)"))
-if previous_injuries >= 3:
-    factors.append(("🟠 Multiple past injuries", f"{previous_injuries} past injuries"))
-
 if factors:
-    for title, detail in factors:
-        st.markdown(f"- **{title}** — {detail}")
+    st.caption(
+        "Each factor shows how many risk points it contributes. They sum to the "
+        "score above — so nothing can raise the gauge without appearing here."
+    )
+    for factor in factors:
+        icon = SEVERITY_ICONS.get(factor.severity, "🟠")
+        st.markdown(
+            f"- {icon} **{factor.label}** — {factor.detail} " f"&nbsp;`+{factor.percent} pts`",
+            unsafe_allow_html=True,
+        )
 else:
-    st.success("No major risk factor detected ✅")
+    st.success("No risk factor detected ✅")
 
 st.divider()
 

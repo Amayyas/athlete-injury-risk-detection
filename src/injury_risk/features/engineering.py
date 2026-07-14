@@ -6,10 +6,10 @@ This module gathers the project's "domain" logic:
   used by strength & conditioning staff (optimal zone 0.8–1.3, danger > 1.5);
 - **rolling features** (7/14/28-day moving averages) on workload and soreness;
 - **workload trend** over 7 days (slope);
-- position encoding;
-- a **composite risk score** function based on business rules, shared between the
-  synthetic generator (label creation) and the dashboard (real-time scoring
-  without a trained model).
+- position encoding.
+
+The rule-based scoring (composite score + risk factors) lives in
+:mod:`injury_risk.features.risk_factors`.
 
 Every constant it relies on lives in :mod:`injury_risk.config`.
 
@@ -25,32 +25,11 @@ import pandas as pd
 
 from injury_risk.config import (
     ACUTE_WINDOW,
-    ACWR_DANGER,
-    ACWR_ELEVATED,
-    ACWR_UNDER,
     ACWR_ZONES,
     CHRONIC_WINDOW,
-    HR_DELTA_RANGE,
     LOAD_TREND_WINDOW,
     POSITION_TO_CODE,
-    PREVIOUS_INJURIES_RANGE,
-    RECENT_RETURN_DAYS,
-    RISK_HIGH_THRESHOLD,
-    RISK_LOW_THRESHOLD,
     ROLLING_WINDOWS,
-    SLEEP_RANGE,
-    SLEEP_TARGET,
-    SORENESS_ONSET,
-    SORENESS_RANGE,
-    W_ACWR_DANGER,
-    W_ACWR_ELEVATED,
-    W_ACWR_UNDER,
-    W_INJURY_PRONE,
-    W_PREVIOUS_INJURIES,
-    W_RECENT_RETURN,
-    W_RESTING_HR,
-    W_SLEEP,
-    W_SORENESS,
 )
 
 # --------------------------------------------------------------------------- #
@@ -141,77 +120,6 @@ def encode_position(df: pd.DataFrame, col: str = "position") -> pd.DataFrame:
     df = df.copy()
     df["position_code"] = df[col].str.lower().map(POSITION_TO_CODE).fillna(-1).astype(int)
     return df
-
-
-# --------------------------------------------------------------------------- #
-# Composite risk score (business rules) — shared by generator/dashboard
-# --------------------------------------------------------------------------- #
-
-
-def composite_risk_score(
-    *,
-    acwr: float,
-    soreness: float,
-    sleep_hours: float,
-    resting_hr: float,
-    baseline_hr: float = 55.0,
-    injury_prone: bool = False,
-    previous_injuries: int = 0,
-    days_since_injury: float = 365.0,
-) -> float:
-    """Continuous risk score (0 = low, ~1 = very high), based on rules.
-
-    This function encodes the project's domain knowledge. It is used to:
-
-    - generate the synthetic dataset labels (with noise added upstream);
-    - compute a real-time score in the dashboard, **before** the ML model is
-      trained/loaded.
-
-    Contributions are deliberately additive and bounded to stay readable and
-    explainable. Every weight and range comes from :mod:`injury_risk.config`.
-    """
-    score = 0.0
-
-    # 1) ACWR: the danger zone is the main risk factor.
-    if acwr >= ACWR_DANGER:
-        score += W_ACWR_DANGER
-    elif acwr >= ACWR_ELEVATED:
-        score += W_ACWR_ELEVATED
-    elif acwr < ACWR_UNDER:
-        score += W_ACWR_UNDER  # under-loading: moderate risk (detraining)
-
-    # 2) High soreness (0-10 scale).
-    score += np.clip((soreness - SORENESS_ONSET) / SORENESS_RANGE, 0, 1) * W_SORENESS
-
-    # 3) Lack of sleep (below the target is a recognised risk factor).
-    score += np.clip((SLEEP_TARGET - sleep_hours) / SLEEP_RANGE, 0, 1) * W_SLEEP
-
-    # 4) Resting heart rate elevated vs baseline (fatigue/stress).
-    score += np.clip((resting_hr - baseline_hr) / HR_DELTA_RANGE, 0, 1) * W_RESTING_HR
-
-    # 5) History: proneness + number of past injuries.
-    if injury_prone:
-        score += W_INJURY_PRONE
-    score += np.clip(previous_injuries / PREVIOUS_INJURIES_RANGE, 0, 1) * W_PREVIOUS_INJURIES
-
-    # 6) Recent return from injury: tissue still fragile.
-    if days_since_injury < RECENT_RETURN_DAYS:
-        score += W_RECENT_RETURN * (1 - days_since_injury / RECENT_RETURN_DAYS)
-
-    return float(np.clip(score, 0.0, 1.0))
-
-
-def risk_score_to_level(
-    score: float,
-    low_thr: float = RISK_LOW_THRESHOLD,
-    high_thr: float = RISK_HIGH_THRESHOLD,
-) -> int:
-    """Convert a continuous score into a risk level: 0=low, 1=moderate, 2=high."""
-    if score >= high_thr:
-        return 2
-    if score >= low_thr:
-        return 1
-    return 0
 
 
 # --------------------------------------------------------------------------- #

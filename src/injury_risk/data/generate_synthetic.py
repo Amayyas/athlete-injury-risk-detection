@@ -36,7 +36,7 @@ from injury_risk.config import (
     POSITIONS,
     SYNTHETIC_DATASET,
 )
-from injury_risk.features.engineering import composite_risk_score, risk_score_to_level
+from injury_risk.features.risk_factors import composite_risk_score, risk_score_to_level
 
 DEFAULT_OUTPUT = SYNTHETIC_DATASET
 
