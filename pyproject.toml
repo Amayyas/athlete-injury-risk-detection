@@ -35,6 +35,8 @@ dependencies = [
     "seaborn>=0.13,<0.14",
     # Model persistence
     "joblib>=1.4,<2.0",
+    # CLI
+    "typer>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -47,8 +49,12 @@ dev = [
     "mypy>=1.13",
     "black>=24.10",
     "ruff>=0.8",
+    "pip-tools>=7.4",   # `make lock`
     "injury-risk[dashboard,kaggle,notebooks]",
 ]
+
+[project.scripts]
+injury-risk = "injury_risk.cli:app"
 
 [project.urls]
 Repository = "https://github.com/Amayyas/athlete-injury-risk-detection"
@@ -91,3 +97,8 @@ extend-exclude = ["notebooks"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]  # line length handled by black
+
+[tool.ruff.lint.per-file-ignores]
+# typer's whole design is to declare options as call defaults; B008 is a false
+# positive here, not a bug.
+"src/injury_risk/cli.py" = ["B008"]
