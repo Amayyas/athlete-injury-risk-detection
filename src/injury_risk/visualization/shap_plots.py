@@ -8,13 +8,10 @@ understand *why* an athlete is classified as at risk. We use a
 - an individual **waterfall plot**: contribution of each feature to a given
   athlete's prediction.
 
-Usage:
-    python -m injury_risk.visualization.shap_plots --track synthetic
 """
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import joblib
@@ -23,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from injury_risk.config import DEFAULT_SEED, FIGURES_DIR, MODELS_DIR
-from injury_risk.data.datasets import TRACKS, load_track
+from injury_risk.data.datasets import load_track
 
 matplotlib.use("Agg")  # non-interactive backend (file generation)
 import matplotlib.pyplot as plt  # noqa: E402
@@ -34,7 +31,7 @@ def _load_model(track: str):
     path = MODELS_DIR / f"model_{track}.joblib"
     if not path.exists():
         raise FileNotFoundError(
-            f"Model not found: {path}\nRun first: python -m injury_risk.models.train --track {track}"
+            f"Model not found: {path}\nRun first: injury-risk train --track {track}"
         )
     bundle = joblib.load(path)
     return bundle["pipeline"], bundle["feature_cols"], bundle["classes"]
@@ -113,19 +110,3 @@ def save_waterfall_plot(
     plt.close()
     print(f"Waterfall plot -> {out}")
     return out
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate the SHAP plots.")
-    parser.add_argument("--track", choices=list(TRACKS), default="synthetic")
-    parser.add_argument("--index", type=int, default=0, help="row for the waterfall")
-    parser.add_argument("--n", type=int, default=500)
-    args = parser.parse_args()
-
-    save_summary_plot(args.track, n=args.n)
-    save_waterfall_plot(args.track, index=args.index, n=args.n)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

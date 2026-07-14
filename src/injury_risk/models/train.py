@@ -13,14 +13,10 @@ track (cf. :mod:`injury_risk.models.splits`), with **recall**-oriented metrics (
 a medical context, missing an injury costs more than a false alarm):
 f1_macro, recall_macro, roc_auc (weighted OVR).
 
-Usage:
-    python -m injury_risk.models.train               # train both tracks
-    python -m injury_risk.models.train --track real  # a single track
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 
 import joblib
@@ -39,7 +35,7 @@ from injury_risk.config import (
     SCORING,
     XGB_DEFAULT_PARAMS,
 )
-from injury_risk.data.datasets import TRACKS, Dataset, load_track
+from injury_risk.data.datasets import Dataset, load_track
 from injury_risk.models.baselines import lift_over, reference_points
 from injury_risk.models.splits import grouped_train_test_split, make_cv
 
@@ -184,22 +180,3 @@ def train_track(track: str, seed: int = DEFAULT_SEED, tuned: bool = False) -> di
     print(f"Model -> {model_path}")
     print(f"Metrics -> {metrics_path}")
     return metrics
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Train the risk models.")
-    parser.add_argument("--track", choices=[*TRACKS, "both"], default="both")
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument(
-        "--tuned", action="store_true", help="use tuned hyperparameters if available"
-    )
-    args = parser.parse_args()
-
-    tracks = list(TRACKS) if args.track == "both" else [args.track]
-    for track in tracks:
-        train_track(track, seed=args.seed, tuned=args.tuned)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

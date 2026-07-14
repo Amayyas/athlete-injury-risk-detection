@@ -149,8 +149,8 @@ if summary_synth.exists() or waterfall_synth.exists():
 else:
     st.info(
         "SHAP plots will show up here after the model is trained:\n\n"
-        "```\npython -m injury_risk.models.train --track synthetic\n"
-        "python -m injury_risk.visualization.shap_plots --track synthetic\n```"
+        "```\ninjury-risk train --track synthetic\n"
+        "injury-risk shap --track synthetic\n```"
     )
 
 with st.expander("ℹ️ About the data & limitations"):

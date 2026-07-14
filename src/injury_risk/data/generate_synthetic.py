@@ -26,16 +26,11 @@ next 7 days?". The link between features and target is now stochastic and has to
 genuinely learned, and the rule score becomes a *baseline to beat* rather than the
 answer key.
 
-Usage:
-    python -m injury_risk.data.generate_synthetic            # 200 athletes, 730 days
-    python -m injury_risk.data.generate_synthetic --athletes 50 --days 365
 """
 
 from __future__ import annotations
 
-import argparse
 from collections import deque
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -209,31 +204,3 @@ def generate(
     df = pd.concat(frames, ignore_index=True)
     df["date"] = pd.to_datetime("2023-01-01") + pd.to_timedelta(df["day"], unit="D")
     return add_target(df)
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate the synthetic dataset.")
-    parser.add_argument("--athletes", type=int, default=N_ATHLETES)
-    parser.add_argument("--days", type=int, default=N_DAYS)
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    args = parser.parse_args()
-
-    df = generate(args.athletes, args.days, args.seed)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(args.output, index=False)
-
-    injuries = int(df["injury_onset"].sum())
-    per_athlete = injuries / df["athlete_id"].nunique()
-    modelled = df[~df["is_injured"] & df["horizon_complete"]]
-
-    print(f"Synthetic dataset: {len(df)} rows, {df['athlete_id'].nunique()} athletes")
-    print(f"Injury events    : {injuries} ({per_athlete:.1f} per athlete over the period)")
-    print(f"Days sidelined   : {df['is_injured'].mean():.1%} of all athlete-days")
-    print(f"Target '{TARGET_COL}' : {modelled[TARGET_COL].mean():.2%} positive on modellable rows")
-    print(f"Written to: {args.output}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

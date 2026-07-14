@@ -57,8 +57,7 @@ def load_sirp600(path: Path = SIRP_PATH) -> pd.DataFrame:
     """
     if not path.exists():
         raise FileNotFoundError(
-            f"SIRP-600 dataset not found: {path}\n"
-            "Run first: python -m injury_risk.data.download sirp-600"
+            f"SIRP-600 dataset not found: {path}\n" "Run first: injury-risk download sirp-600"
         )
 
     df = pd.read_excel(path)
