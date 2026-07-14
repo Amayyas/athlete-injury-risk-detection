@@ -10,7 +10,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from injury_risk.config import SAMPLE_PER_ATHLETE, WARMUP_DAYS
+from injury_risk.config import SAMPLE_PER_ATHLETE, TARGET_COL, WARMUP_DAYS
 from injury_risk.data.datasets import (
     GROUP_COL,
     TRACKS,
@@ -86,3 +86,27 @@ def test_loading_is_deterministic_for_a_given_seed():
     a = load_synthetic(sample_per_athlete=5, seed=7)
     b = load_synthetic(sample_per_athlete=5, seed=7)
     pd.testing.assert_frame_equal(a.X, b.X)
+
+
+# --------------------------------------------------------------------------- #
+# The new predictive target
+# --------------------------------------------------------------------------- #
+
+
+def test_target_is_the_injury_event(synthetic: Dataset):
+    assert synthetic.y.name == TARGET_COL
+    assert set(synthetic.y) <= {0, 1}
+    assert 0.0 < synthetic.y.mean() < 0.20, "injuries must stay rare"
+
+
+def test_unmodellable_rows_are_dropped(synthetic: Dataset):
+    """Already-injured days and the censored tail cannot be predicted."""
+    assert not synthetic.frame["is_injured"].any()
+    assert synthetic.frame["horizon_complete"].all()
+
+
+def test_the_latent_risk_is_never_a_feature(synthetic: Dataset):
+    """The hazard driver stays out of X — otherwise the target would be circular
+    again, which is the whole bug this redesign kills."""
+    assert "latent_risk" not in synthetic.X.columns
+    assert "latent_risk" in synthetic.frame.columns  # kept as the oracle baseline
