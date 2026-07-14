@@ -18,7 +18,7 @@ from injury_risk.models.train import build_pipeline
 
 requires_real_data = pytest.mark.skipif(
     not SIRP_PATH.exists(),
-    reason="SIRP-600 is a private Kaggle dataset; run `python -m injury_risk.data.download`",
+    reason="SIRP-600 is a private Kaggle dataset; run `injury-risk download`",
 )
 
 

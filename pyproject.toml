@@ -35,6 +35,8 @@ dependencies = [
     "seaborn>=0.13,<0.14",
     # Model persistence
     "joblib>=1.4,<2.0",
+    # CLI
+    "typer>=0.12",
 ]
 
 [project.optional-dependencies]
@@ -47,8 +49,20 @@ dev = [
     "mypy>=1.13",
     "black>=24.10",
     "ruff>=0.8",
-    "injury-risk[dashboard,kaggle,notebooks]",
+    "pip-tools>=7.4",   # `make lock`
+    # The other extras are listed out rather than self-referenced as
+    # `injury-risk[dashboard,...]`: pip-compile resolves a self-referencing extra to
+    # a local file:// path and writes *that* into the lock, which then only installs
+    # on the machine that generated it.
+    "streamlit>=1.40,<2.0",
+    "kaggle>=1.6,<2.0",
+    "nbformat>=5.10",
+    "nbconvert>=7.16",
+    "ipykernel>=6.29",
 ]
+
+[project.scripts]
+injury-risk = "injury_risk.cli:app"
 
 [project.urls]
 Repository = "https://github.com/Amayyas/athlete-injury-risk-detection"
@@ -91,3 +105,8 @@ extend-exclude = ["notebooks"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]  # line length handled by black
+
+[tool.ruff.lint.per-file-ignores]
+# typer's whole design is to declare options as call defaults; B008 is a false
+# positive here, not a bug.
+"src/injury_risk/cli.py" = ["B008"]

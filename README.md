@@ -246,42 +246,54 @@ athlete-injury-risk-detection/
 
 ## 🚀 Getting started
 
+Everything hangs off **one command**, `injury-risk` (`make help` lists the shortcuts):
+
 ```bash
 # 1) Environment — installs the `injury_risk` package in editable mode
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"        # runtime + tests, lint, notebooks
-# (or, runtime + dashboard only:  pip install -r requirements.txt)
+make setup                    # == pip install -e ".[dev]"
 
-# 2) (Optional) Download the real datasets — requires a Kaggle token
-python -m injury_risk.data.download                 # everything
-python -m injury_risk.data.download sirp-600        # a single one
+# 2) The whole pipeline: data -> train -> SHAP plots
+make pipeline
 
-# 3) Generate the synthetic dataset (200 athletes × 730 days)
-python -m injury_risk.data.generate_synthetic
-
-# 4) (Optional) Compare baselines (LogReg / RandomForest / XGBoost)
-python -m injury_risk.models.benchmark              # or --track synthetic / --track real
-
-# 5) (Optional) Tune XGBoost hyperparameters (recall-first)
-python -m injury_risk.models.tune --track synthetic --n-iter 30
-
-# 6) Train the models (synthetic + real)
-python -m injury_risk.models.train                  # add --tuned to use tuned params
-
-# 7) Generate the SHAP plots
-python -m injury_risk.visualization.shap_plots --track synthetic
-
-# 8) Launch the dashboard (works even without a trained model)
-streamlit run dashboard/app.py
+# 3) Launch the dashboard (works even without a trained model)
+make run
 ```
+
+Or stage by stage:
+
+```bash
+injury-risk --help                          # every command, self-documented
+injury-risk download sirp-600               # real datasets (needs a Kaggle token)
+injury-risk data                            # generate 200 athletes x 730 days
+injury-risk benchmark                       # LogReg / RandomForest / XGBoost
+injury-risk tune --track synthetic          # hyperparameter search
+injury-risk train --tuned                   # train and write the metrics report
+injury-risk shap --track synthetic          # explainability plots
+injury-risk dashboard                       # Streamlit app
+```
+
+### Reproducible installs
+
+`pyproject.toml` is the single source of truth for dependencies; `requirements.lock`
+and `requirements-dev.lock` pin the exact resolved versions (regenerate with
+`make lock`).
+
+```bash
+pip install -c requirements.lock -e .       # the exact, reproducible versions
+```
+
+CI installs **pinned on Python 3.12** — that is the reproducible build the Docker
+image and the deployment will use — and **unpinned on 3.13**, on purpose: that leg is
+the canary that catches an upstream release breaking us *before* we bump the lock.
 
 ### Code quality & tests
 
 ```bash
-pytest            # unit tests + coverage floor
-ruff check .      # lint
-black .           # formatting
-mypy              # static type checking
+make check        # everything CI runs: lint + types + tests
+make test         # tests with their coverage floor
+make lint         # ruff + mypy
+make format       # black + ruff --fix
 ```
 
 All four run on every push and pull request via [GitHub Actions](.github/workflows/ci.yml),

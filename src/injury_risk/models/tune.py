@@ -8,13 +8,10 @@ than a false alarm.
 The best parameters are saved to ``models/best_params_{track}.json`` and
 automatically reused by ``injury_risk.models.train`` when the ``--tuned`` option is passed.
 
-Usage:
-    python -m injury_risk.models.tune --track synthetic --n-iter 30
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 
@@ -25,7 +22,7 @@ from sklearn.model_selection import RandomizedSearchCV
 from xgboost import XGBClassifier
 
 from injury_risk.config import DEFAULT_SEED, MODELS_DIR
-from injury_risk.data.datasets import TRACKS, load_track
+from injury_risk.data.datasets import load_track
 from injury_risk.models.splits import make_cv
 
 # Search space (prefixed with ``clf__`` to target the pipeline step).
@@ -110,20 +107,3 @@ def load_best_params(track: str) -> dict | None:
         if key in params:
             params[key] = int(round(float(params[key])))
     return params
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="XGBoost tuning (recall-first).")
-    parser.add_argument("--track", choices=[*TRACKS, "both"], default="both")
-    parser.add_argument("--n-iter", type=int, default=30)
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    args = parser.parse_args()
-
-    tracks = list(TRACKS) if args.track == "both" else [args.track]
-    for track in tracks:
-        tune_track(track, n_iter=args.n_iter, seed=args.seed)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

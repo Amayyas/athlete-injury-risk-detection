@@ -11,14 +11,10 @@ The goal is to justify the choice of XGBoost with a quantified comparison rather
 than by principle. Results are printed as a table and saved to
 ``reports/benchmark_{track}.json``.
 
-Usage:
-    python -m injury_risk.models.benchmark               # both tracks
-    python -m injury_risk.models.benchmark --track real
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 
 import pandas as pd
@@ -31,7 +27,7 @@ from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
 
 from injury_risk.config import DEFAULT_SEED, REPORTS_DIR, SCORING
-from injury_risk.data.datasets import TRACKS, load_track
+from injury_risk.data.datasets import load_track
 from injury_risk.models.splits import make_cv
 
 
@@ -132,19 +128,3 @@ def benchmark_track(track: str, seed: int = DEFAULT_SEED) -> pd.DataFrame:
     print(f"-> Best average_precision (PR-AUC): {best}")
     print(f"Saved: {out}")
     return table
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Baseline model benchmark.")
-    parser.add_argument("--track", choices=[*TRACKS, "both"], default="both")
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    args = parser.parse_args()
-
-    tracks = list(TRACKS) if args.track == "both" else [args.track]
-    for track in tracks:
-        benchmark_track(track, seed=args.seed)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
