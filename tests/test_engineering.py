@@ -13,9 +13,7 @@ from injury_risk.features.engineering import (
     add_load_trend,
     add_rolling_features,
     build_features,
-    composite_risk_score,
     encode_position,
-    risk_score_to_level,
 )
 
 
@@ -141,36 +139,3 @@ def test_encode_position_known_and_unknown():
         POSITION_TO_CODE["midfielder"],
         -1,  # unknown position
     ]
-
-
-# --------------------------------------------------------------------------- #
-# composite risk score
-# --------------------------------------------------------------------------- #
-
-
-def test_composite_risk_score_bounds():
-    s = composite_risk_score(acwr=1.0, soreness=3, sleep_hours=8, resting_hr=55)
-    assert 0.0 <= s <= 1.0
-
-
-def test_composite_risk_score_danger_higher_than_safe():
-    safe = composite_risk_score(acwr=1.0, soreness=2, sleep_hours=8, resting_hr=52)
-    risky = composite_risk_score(
-        acwr=1.8,
-        soreness=9,
-        sleep_hours=4,
-        resting_hr=80,
-        injury_prone=True,
-        previous_injuries=4,
-        days_since_injury=10,
-    )
-    assert risky > safe
-    assert risky >= 0.6
-
-
-def test_risk_score_to_level_thresholds():
-    assert risk_score_to_level(0.1) == 0  # < low_thr
-    assert risk_score_to_level(0.2) == 1  # between low_thr and high_thr
-    assert risk_score_to_level(0.5) == 2  # >= high_thr
-    # Customizable thresholds.
-    assert risk_score_to_level(0.4, low_thr=0.33, high_thr=0.55) == 1

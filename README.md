@@ -170,7 +170,7 @@ athlete-injury-risk-detection/
 │   └── injury_risk/          # the installable package
 │       ├── config.py         # single source of truth (paths, thresholds, weights, CV)
 │       ├── data/             # datasets.py (public API), generate_synthetic.py, load_dataset.py
-│       ├── features/         # engineering.py (ACWR, rolling, composite score)
+│       ├── features/         # engineering.py (ACWR, rolling) + risk_factors.py (rule scoring)
 │       ├── models/           # train.py, tune.py, benchmark.py, splits.py (grouped CV)
 │       └── visualization/    # shap_plots.py
 ├── dashboard/                # app.py (Streamlit)
@@ -238,6 +238,13 @@ The dashboard computes a **real-time risk score** from the business rules (ACWR,
 sleep, soreness, HR, injury history) — so it stays functional **even before the
 model is trained**. Once the SHAP plots are generated, the explainability section
 shows up automatically.
+
+**The "active risk factors" list is the score's own decomposition.** Each factor
+carries the number of risk points it contributes, and the score is their sum. A
+contribution therefore cannot exist without its factor being displayed — the gauge
+and its explanation are mathematically unable to contradict each other. All of it
+lives in `injury_risk.features.risk_factors`, where it is unit-tested; the Streamlit
+file only renders.
 
 ---
 
