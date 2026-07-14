@@ -40,6 +40,7 @@ from injury_risk.config import (
     XGB_DEFAULT_PARAMS,
 )
 from injury_risk.data.datasets import TRACKS, Dataset, load_track
+from injury_risk.models.baselines import lift_over, reference_points
 from injury_risk.models.splits import grouped_train_test_split, make_cv
 
 
@@ -125,7 +126,25 @@ def train_track(track: str, seed: int = DEFAULT_SEED, tuned: bool = False) -> di
     for metric, stats in cv_summary.items():
         print(f"  {metric:14s} = {stats['mean']:.3f} ± {stats['std']:.3f}")
 
-    # 2) Hold-out for a readable classification report — also grouped, otherwise
+    # 2) Reference points: a PR-AUC is meaningless without knowing what chance and
+    #    what the achievable ceiling look like on this data.
+    refs = reference_points(data)
+    print("Reference points (same rows):")
+    for name, scores in refs.items():
+        print(
+            f"  {name:<11} average_precision = {scores['average_precision']:.3f}"
+            f"  roc_auc = {scores['roc_auc']:.3f}"
+        )
+    lift = None
+    if "rule_score" in refs:
+        lift = lift_over(
+            cv_summary["average_precision"]["mean"],
+            refs["rule_score"]["average_precision"],
+        )
+        verdict = "beats" if lift > 0 else "does NOT beat"
+        print(f"  -> the model {verdict} the domain rules ({lift:+.0%} PR-AUC)")
+
+    # 3) Hold-out for a readable classification report — also grouped, otherwise
     #    the same athlete would sit on both sides of the split.
     X_tr, X_te, y_tr, y_te = grouped_train_test_split(X, y, data.groups, seed=seed)
     pipe.fit(X_tr, y_tr)
@@ -136,7 +155,7 @@ def train_track(track: str, seed: int = DEFAULT_SEED, tuned: bool = False) -> di
         rec = report[str(label)]["recall"]
         print(f"  class {label}: recall={rec:.3f}")
 
-    # 3) Retrain on the whole dataset for the delivered model.
+    # 4) Retrain on the whole dataset for the delivered model.
     pipe.fit(X, y)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -156,6 +175,8 @@ def train_track(track: str, seed: int = DEFAULT_SEED, tuned: bool = False) -> di
         "cv_strategy": type(make_cv(track, seed=seed)).__name__,
         "n_groups": int(len(np.unique(data.groups))) if data.groups is not None else None,
         "cross_validation": cv_summary,
+        "reference_points": refs,
+        "lift_over_rules": lift,
         "holdout_report": report,
     }
     metrics_path = REPORTS_DIR / f"metrics_{track}.json"

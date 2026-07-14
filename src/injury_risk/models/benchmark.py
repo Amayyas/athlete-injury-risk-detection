@@ -118,7 +118,9 @@ def benchmark_track(track: str, seed: int = DEFAULT_SEED) -> pd.DataFrame:
         )
 
     table = pd.DataFrame(rows).set_index("model").round(4)
-    table = table.sort_values("recall_macro", ascending=False)  # recall = priority
+    # PR-AUC ranks the models: with a ~5% positive class it is the metric that
+    # actually discriminates. Recall alone would reward a model that flags everyone.
+    table = table.sort_values("average_precision", ascending=False)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     out = REPORTS_DIR / f"benchmark_{track}.json"
@@ -127,7 +129,7 @@ def benchmark_track(track: str, seed: int = DEFAULT_SEED) -> pd.DataFrame:
     print(f"\n=== Benchmark '{track}' ({len(data)} rows, {data.n_classes} classes) ===")
     print(table[list(SCORING)].to_string())
     best = table.index[0]
-    print(f"-> Best recall_macro: {best}")
+    print(f"-> Best average_precision (PR-AUC): {best}")
     print(f"Saved: {out}")
     return table
 
