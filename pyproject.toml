@@ -59,10 +59,10 @@ packages = ["src/injury_risk"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# The coverage floor is a ratchet set at the project's *current* real level, so it
-# can only go up. Only feature engineering is covered today; issue #10 broadens the
-# suite and will raise this number.
-addopts = "-q --cov=injury_risk --cov-report=term-missing --cov-fail-under=15"
+# The coverage floor is a ratchet set just under the project's *current* real level,
+# so it can only go up. It went 15 -> 50 when the suite was broadened (#10). The
+# uncovered remainder is mostly CLI entry points and plotting code.
+addopts = "-q --cov=injury_risk --cov-report=term-missing --cov-fail-under=50"
 
 [tool.coverage.run]
 source = ["injury_risk"]
