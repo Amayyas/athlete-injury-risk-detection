@@ -10,19 +10,30 @@
   "cv_strategy": "StratifiedKFold",
   "n_groups": null,
   "cross_validation": {
-    "f1_macro": {
-      "mean": 0.9227080501298293,
-      "std": 0.033388765834787434
-    },
-    "recall_macro": {
-      "mean": 0.9314321017895264,
-      "std": 0.02961876431721246
+    "average_precision": {
+      "mean": 0.9194166962071464,
+      "std": 0.08139059249310533
     },
     "roc_auc": {
       "mean": 0.9586484856262297,
       "std": 0.024991248805273106
+    },
+    "recall": {
+      "mean": 0.9310099573257468,
+      "std": 0.03629681539630236
+    },
+    "f1": {
+      "mean": 0.8964978354978355,
+      "std": 0.04340256458747138
     }
   },
+  "reference_points": {
+    "chance": {
+      "average_precision": 0.315,
+      "roc_auc": 0.5
+    }
+  },
+  "lift_over_rules": null,
   "holdout_report": {
     "0": {
       "precision": 0.9512195121951219,
