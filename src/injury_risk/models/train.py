@@ -1,18 +1,15 @@
-"""Training of the injury-risk models (XGBoost + SMOTE).
+"""Train, calibrate, and pick an operating point.
 
-Two independent "tracks" share the same pipeline skeleton:
+Pipeline per track:
 
-- ``synthetic``: generated temporal dataset (3 classes low/moderate/high), after
-  full feature engineering (ACWR, rolling, trend);
-- ``real``: real SIRP-600 dataset (binary target, naturally imbalanced).
+    SMOTE -> estimator          (fitted inside every CV fold, never before)
+    -> calibration              (isotonic, on out-of-fold predictions)
+    -> cost-based threshold     (FN costs COST_FALSE_NEGATIVE times an FP)
 
-Common pipeline:
-    SMOTE (rebalancing) -> XGBoostClassifier
-evaluated with 5-fold cross-validation **grouped by athlete** on the synthetic
-track (cf. :mod:`injury_risk.models.splits`), with **recall**-oriented metrics (in
-a medical context, missing an injury costs more than a false alarm):
-f1_macro, recall_macro, roc_auc (weighted OVR).
-
+Everything is evaluated with 5-fold cross-validation **grouped by athlete**, and the
+delivered bundle carries its threshold: a model that ships without its operating
+point silently reverts to 0.5, which on a ~5% positive class means predicting "no
+injury" for everyone.
 """
 
 from __future__ import annotations
@@ -21,64 +18,63 @@ import json
 
 import joblib
 import numpy as np
-from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
-from sklearn.metrics import classification_report
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import brier_score_loss
 from sklearn.model_selection import cross_validate
-from xgboost import XGBClassifier
 
 from injury_risk.config import (
+    COST_FALSE_NEGATIVE,
+    COST_FALSE_POSITIVE,
     CV_N_SPLITS,
     DEFAULT_SEED,
     MODELS_DIR,
     REPORTS_DIR,
     SCORING,
-    XGB_DEFAULT_PARAMS,
 )
 from injury_risk.data.datasets import Dataset, load_track
 from injury_risk.models.baselines import lift_over, reference_points
-from injury_risk.models.splits import grouped_train_test_split, make_cv
+from injury_risk.models.candidates import build_candidate, delivered_model
+from injury_risk.models.evaluate import (
+    out_of_fold_calibrated_proba,
+    out_of_fold_proba,
+    plot_calibration,
+    plot_confusion,
+    plot_precision_recall,
+    summarise,
+)
+from injury_risk.models.splits import make_cv, materialise_folds
+from injury_risk.models.threshold import optimal_threshold
+from injury_risk.models.tune import load_best_params
 
 
-def build_pipeline(
-    n_classes: int,
-    seed: int = DEFAULT_SEED,
-    params: dict | None = None,
-) -> ImbPipeline:
-    """SMOTE + XGBoost pipeline adapted to the number of classes.
+def build_pipeline(n_classes: int, seed: int = DEFAULT_SEED, params: dict | None = None):
+    """A model pipeline for callers that just want *a* model (tests, smoke checks)."""
+    from injury_risk.models.candidates import DEFAULT_MODEL
 
-    ``params`` allows injecting hyperparameters from tuning
-    (cf. :mod:`injury_risk.models.tune`). Otherwise the defaults from the config
-    are used.
+    return build_candidate(DEFAULT_MODEL, n_classes, seed, params=params)
+
+
+def _calibrated(pipe, data: Dataset, seed: int = DEFAULT_SEED) -> CalibratedClassifierCV:
+    """Wrap a pipeline in isotonic calibration, keeping the athlete grouping.
+
+    The folds are materialised rather than passed as a splitter: CalibratedClassifierCV
+    does not forward ``groups``, so a StratifiedGroupKFold would silently lose the
+    grouping inside it (cf. injury_risk.models.splits.materialise_folds).
     """
-    objective = "multi:softprob" if n_classes > 2 else "binary:logistic"
-    xgb_params = {**XGB_DEFAULT_PARAMS, **(params or {})}
-    clf = XGBClassifier(
-        **xgb_params,
-        objective=objective,
-        eval_metric="mlogloss" if n_classes > 2 else "logloss",
-        tree_method="hist",
-        random_state=seed,
-        n_jobs=-1,
-    )
-    # Cautious k_neighbors in case a minority class is very rare.
-    return ImbPipeline(
-        steps=[
-            ("smote", SMOTE(random_state=seed, k_neighbors=5)),
-            ("clf", clf),
-        ]
-    )
+    folds = materialise_folds(data.X, data.y, data.groups, data.track, seed=seed)
+    return CalibratedClassifierCV(pipe, method="isotonic", cv=folds)
 
 
-def _evaluate_cv(pipe: ImbPipeline, data: Dataset, seed: int = DEFAULT_SEED) -> dict:
-    """Cross-validation, returns the mean scores.
-
-    On the synthetic track the folds are **grouped by athlete** so that no athlete
-    appears in both the training and the validation fold.
-    """
-    cv = make_cv(data.track, seed=seed)
+def _evaluate_cv(pipe, data: Dataset, seed: int = DEFAULT_SEED) -> dict:
+    """Grouped cross-validation, returning mean and std per metric."""
     results = cross_validate(
-        pipe, data.X, data.y, groups=data.groups, cv=cv, scoring=SCORING, n_jobs=-1
+        pipe,
+        data.X,
+        data.y,
+        groups=data.groups,
+        cv=make_cv(data.track, seed=seed),
+        scoring=SCORING,
+        n_jobs=-1,
     )
     return {
         metric: {
@@ -89,91 +85,136 @@ def _evaluate_cv(pipe: ImbPipeline, data: Dataset, seed: int = DEFAULT_SEED) -> 
     }
 
 
-def train_track(track: str, seed: int = DEFAULT_SEED, tuned: bool = False) -> dict:
-    """Train and evaluate a track, save the model + the metrics.
+def train_track(
+    track: str,
+    seed: int = DEFAULT_SEED,
+    tuned: bool = False,
+    model: str | None = None,
+    calibrate: bool = True,
+) -> dict:
+    """Train a model on a track: evaluate, calibrate, threshold, save.
 
-    If ``tuned`` is true and tuning has been performed (cf. src.models.tune), the
-    best hyperparameters are loaded and used.
+    ``model`` defaults to whichever candidate won the *tuned* benchmark on that track.
     """
+    model = model or delivered_model(track)
     data = load_track(track, seed=seed)
-    X, y = data.X, data.y
 
-    print(
-        f"\n=== Track '{track}': {len(data)} rows, {X.shape[1]} features, "
-        f"{data.n_classes} classes ==="
-    )
-    print(f"Target distribution: {y.value_counts(normalize=True).sort_index().round(3).to_dict()}")
+    params = load_best_params(track, model) if tuned else None
+    print(f"\n=== Track '{track}' — {model} ({'tuned' if params else 'default params'}) ===")
+    print(f"{len(data)} rows, {data.X.shape[1]} features, positive rate {data.y.mean():.2%}")
 
-    params = None
-    if tuned:
-        from injury_risk.models.tune import load_best_params
+    pipe = build_candidate(model, data.n_classes, seed, params=params)
 
-        params = load_best_params(track)
-        if params:
-            print(f"Tuned hyperparameters loaded: {params}")
-        else:
-            print("No tuned params found -> defaults. Run injury_risk.models.tune.")
-    pipe = build_pipeline(data.n_classes, seed, params=params)
-
-    # 1) Cross-validation (honest performance estimate), grouped by athlete.
+    # 1) Honest performance: grouped CV, so no athlete spans a fold.
     cv_summary = _evaluate_cv(pipe, data, seed)
     grouped = "grouped by athlete" if data.groups is not None else "stratified"
     print(f"Cross-validation ({CV_N_SPLITS} folds, {grouped}):")
     for metric, stats in cv_summary.items():
-        print(f"  {metric:14s} = {stats['mean']:.3f} ± {stats['std']:.3f}")
+        print(f"  {metric:18s} = {stats['mean']:.3f} ± {stats['std']:.3f}")
 
-    # 2) Reference points: a PR-AUC is meaningless without knowing what chance and
-    #    what the achievable ceiling look like on this data.
+    # 2) Is the model worth more than the hand-written rules?
     refs = reference_points(data)
     print("Reference points (same rows):")
     for name, scores in refs.items():
         print(
-            f"  {name:<11} average_precision = {scores['average_precision']:.3f}"
+            f"  {name:11s} average_precision = {scores['average_precision']:.3f}"
             f"  roc_auc = {scores['roc_auc']:.3f}"
         )
     lift = None
     if "rule_score" in refs:
         lift = lift_over(
-            cv_summary["average_precision"]["mean"],
-            refs["rule_score"]["average_precision"],
+            cv_summary["average_precision"]["mean"], refs["rule_score"]["average_precision"]
         )
-        verdict = "beats" if lift > 0 else "does NOT beat"
-        print(f"  -> the model {verdict} the domain rules ({lift:+.0%} PR-AUC)")
+        print(f"  -> the model {'beats' if lift > 0 else 'does NOT beat'} the rules ({lift:+.0%})")
 
-    # 3) Hold-out for a readable classification report — also grouped, otherwise
-    #    the same athlete would sit on both sides of the split.
-    X_tr, X_te, y_tr, y_te = grouped_train_test_split(X, y, data.groups, seed=seed)
-    pipe.fit(X_tr, y_tr)
-    y_pred = pipe.predict(X_te)
-    report = classification_report(y_te, y_pred, output_dict=True, zero_division=0)
-    print("Hold-out report (recall per class):")
-    for label in sorted(set(y_te)):
-        rec = report[str(label)]["recall"]
-        print(f"  class {label}: recall={rec:.3f}")
+    # 3) Out-of-fold probabilities drive everything below: a threshold or a
+    #    calibrator fitted on training predictions would be tuned on memorised answers.
+    raw_proba = out_of_fold_proba(pipe, data, seed)
 
-    # 4) Retrain on the whole dataset for the delivered model.
-    pipe.fit(X, y)
+    calibrated_proba = raw_proba
+    if calibrate:
+        calibrated_proba = out_of_fold_calibrated_proba(pipe, data, seed)
+        before, after = summarise(data.y.to_numpy(), raw_proba), summarise(
+            data.y.to_numpy(), calibrated_proba
+        )
+        # Calibration is judged on *reliability* (Brier), not on ranking (PR-AUC).
+        # SMOTE rebalances the classes to train, which inflates every probability:
+        # the raw model claims ~32% risk on a population that gets injured ~5% of the
+        # time. It ranks well and lies about magnitude. Isotonic regression fixes the
+        # magnitude at a small cost in ranking — and a probability a medical staff can
+        # read is the entire point of showing one.
+        brier_before = brier_score_loss(data.y.to_numpy(), raw_proba)
+        brier_after = brier_score_loss(data.y.to_numpy(), calibrated_proba)
+        print("Calibration (isotonic):")
+        print(
+            f"  average_precision {before['average_precision']:.3f} -> "
+            f"{after['average_precision']:.3f}   (ranking: slight cost)"
+        )
+        print(
+            f"  brier             {brier_before:.4f} -> {brier_after:.4f}   (reliability: the point)"
+        )
+        print(
+            f"  mean predicted    {raw_proba.mean():.3f} -> {calibrated_proba.mean():.3f}"
+            f"   (actual rate {data.y.mean():.3f})"
+        )
+
+    # 4) The operating point, from the cost of being wrong.
+    point = optimal_threshold(data.y.to_numpy(), calibrated_proba)
+    print(f"Operating point (FN costs {COST_FALSE_NEGATIVE:.0f}x an FP):")
+    print(f"  threshold = {point.threshold:.3f}")
+    print(f"  recall    = {point.recall:.3f}   precision = {point.precision:.3f}")
+    print(f"  flags {point.alert_rate:.1%} of athlete-days ({point.false_negatives} missed)")
+
+    # 5) Figures.
+    curves = {"Uncalibrated": raw_proba}
+    if calibrate:
+        curves["Isotonic"] = calibrated_proba
+    plot_precision_recall(data.y.to_numpy(), calibrated_proba, track, point)
+    plot_calibration(data.y.to_numpy(), curves, track)
+    plot_confusion(data.y.to_numpy(), calibrated_proba, point, track)
+
+    # 6) Fit the delivered artefact on everything.
+    final = _calibrated(pipe, data, seed) if calibrate else pipe
+    final.fit(data.X, data.y)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = MODELS_DIR / f"model_{track}.joblib"
     joblib.dump(
-        {"pipeline": pipe, "feature_cols": list(X.columns), "classes": pipe.classes_.tolist()},
+        {
+            "pipeline": final,
+            "model": model,
+            "feature_cols": list(data.X.columns),
+            "classes": [int(c) for c in np.unique(data.y)],
+            "threshold": point.threshold,  # ships with the model, or 0.5 silently wins
+            "calibrated": calibrate,
+        },
         model_path,
     )
 
     metrics = {
         "track": track,
+        "model": model,
+        "tuned": bool(params),
+        "calibrated": calibrate,
         "n_samples": int(len(data)),
-        "n_features": int(X.shape[1]),
-        "n_classes": data.n_classes,
-        "class_distribution": y.value_counts(normalize=True).sort_index().round(4).to_dict(),
+        "n_features": int(data.X.shape[1]),
+        "positive_rate": float(data.y.mean()),
         "cv_strategy": type(make_cv(track, seed=seed)).__name__,
         "n_groups": int(len(np.unique(data.groups))) if data.groups is not None else None,
         "cross_validation": cv_summary,
         "reference_points": refs,
         "lift_over_rules": lift,
-        "holdout_report": report,
+        "out_of_fold": summarise(data.y.to_numpy(), calibrated_proba),
+        "reliability": {
+            "brier_uncalibrated": float(brier_score_loss(data.y.to_numpy(), raw_proba)),
+            "brier_calibrated": float(brier_score_loss(data.y.to_numpy(), calibrated_proba)),
+            "mean_predicted_uncalibrated": float(raw_proba.mean()),
+            "mean_predicted_calibrated": float(calibrated_proba.mean()),
+            "actual_rate": float(data.y.mean()),
+        },
+        "operating_point": point.as_dict(),
+        "cost_ratio": COST_FALSE_NEGATIVE / COST_FALSE_POSITIVE,
     }
     metrics_path = REPORTS_DIR / f"metrics_{track}.json"
     metrics_path.write_text(json.dumps(metrics, indent=2, default=str))
