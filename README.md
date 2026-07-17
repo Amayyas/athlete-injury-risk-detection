@@ -352,17 +352,25 @@ on Python 3.12 and 3.13.
 
 ## 🔍 Dashboard details
 
-The dashboard computes a **real-time risk score** from the business rules (ACWR,
-sleep, soreness, HR, injury history) — so it stays functional **even before the
-model is trained**. Once the SHAP plots are generated, the explainability section
-shows up automatically.
+The dashboard shows **two readings of the same athlete, side by side**:
 
-**The "active risk factors" list is the score's own decomposition.** Each factor
-carries the number of risk points it contributes, and the score is their sum. A
-contribution therefore cannot exist without its factor being displayed — the gauge
-and its explanation are mathematically unable to contradict each other. All of it
-lives in `injury_risk.features.risk_factors`, where it is unit-tested; the Streamlit
-file only renders.
+1. **A rule-based score** — computed live from the business rules (ACWR, sleep,
+   soreness, HR, history). It needs no model, so the app is useful immediately. The
+   "active risk factors" list **is the score's own decomposition**: each factor
+   carries the points it contributes and the score is their sum, so the gauge and its
+   explanation are mathematically unable to contradict each other.
+2. **The trained model's prediction** — its **calibrated** probability of an injury
+   within 7 days, flagged against the **cost-based threshold**, with a **live SHAP
+   waterfall** explaining *this* athlete's prediction (not a pre-rendered image).
+
+Both go through `injury_risk.inference`, the same seam the API will use — so the
+number the dashboard shows and the number the API returns come from one place. When
+no model has been trained, the model sections degrade gracefully to a "train me"
+message and the rule-based score carries the app on its own.
+
+> The model reads a daily time series, while the dashboard provides a *snapshot*; the
+> rolling features are therefore filled under a steady-state assumption, stated in one
+> place (`AthleteInputs.to_features`). It is a what-if tool, honest about being one.
 
 ---
 
