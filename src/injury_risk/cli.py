@@ -30,6 +30,7 @@ from injury_risk.config import (
     N_DAYS,
     ROOT,
     SYNTHETIC_DATASET,
+    TUNING_N_ITER,
 )
 from injury_risk.data.datasets import TRACKS
 
@@ -95,21 +96,26 @@ def train(
     track: TrackArg = "both",
     seed: int = DEFAULT_SEED,
     tuned: bool = typer.Option(False, help="Use tuned hyperparameters when available."),
+    model: str = typer.Option(None, help="Defaults to the tuned benchmark winner for the track."),
+    calibrate: bool = typer.Option(True, help="Calibrate probabilities (isotonic)."),
 ) -> None:
-    """Train the model(s) and write the metrics report."""
+    """Train, calibrate and threshold the model(s); write the metrics report."""
+    from injury_risk.models.candidates import CANDIDATES
     from injury_risk.models.train import train_track
 
+    if model is not None and model not in CANDIDATES:
+        raise typer.BadParameter(f"unknown model {model!r} (expected one of {CANDIDATES})")
     for name in _tracks(track):
-        train_track(name, seed=seed, tuned=tuned)
+        train_track(name, seed=seed, tuned=tuned, model=model, calibrate=calibrate)
 
 
 @app.command()
 def tune(
     track: TrackArg = "both",
-    n_iter: int = 30,
+    n_iter: int = TUNING_N_ITER,
     seed: int = DEFAULT_SEED,
 ) -> None:
-    """Search hyperparameters (recall-oriented) and save the best ones."""
+    """Search hyperparameters for every candidate (PR-AUC oriented)."""
     from injury_risk.models.tune import tune_track
 
     for name in _tracks(track):
@@ -117,12 +123,16 @@ def tune(
 
 
 @app.command()
-def benchmark(track: TrackArg = "both", seed: int = DEFAULT_SEED) -> None:
-    """Compare the baselines (LogReg / RandomForest / XGBoost) on one protocol."""
+def benchmark(
+    track: TrackArg = "both",
+    seed: int = DEFAULT_SEED,
+    tuned: bool = typer.Option(False, help="Compare the *tuned* versions."),
+) -> None:
+    """Compare the candidates (LogReg / RandomForest / XGBoost) on one protocol."""
     from injury_risk.models.benchmark import benchmark_track
 
     for name in _tracks(track):
-        benchmark_track(name, seed=seed)
+        benchmark_track(name, seed=seed, tuned=tuned)
 
 
 @app.command()

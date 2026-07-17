@@ -1,13 +1,15 @@
 """Model explainability via SHAP.
 
-The project favors **explainability** over raw accuracy: a medical staff must
-understand *why* an athlete is classified as at risk. We use a
-``shap.TreeExplainer`` (fast and exact on XGBoost trees) to produce:
+The project favours **explainability** over raw accuracy: a medical staff must
+understand *why* an athlete is flagged. Two views:
 
 - a global **summary plot**: importance and effect of each feature;
-- an individual **waterfall plot**: contribution of each feature to a given
-  athlete's prediction.
+- an individual **waterfall plot**: how each feature moved one athlete's prediction.
 
+The explainer is chosen from the model, not hardcoded. This used to assume
+``TreeExplainer`` — which stopped working the moment the tuned benchmark put logistic
+regression ahead of the tree models on the synthetic track. Picking the model on
+evidence means the explainability has to follow the evidence too.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import joblib
 import matplotlib
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 from injury_risk.config import DEFAULT_SEED, FIGURES_DIR, MODELS_DIR
 from injury_risk.data.datasets import load_track
@@ -27,14 +30,40 @@ import matplotlib.pyplot as plt  # noqa: E402
 import shap  # noqa: E402
 
 
-def _load_model(track: str):
+def _load_model(track: str) -> dict:
     path = MODELS_DIR / f"model_{track}.joblib"
     if not path.exists():
         raise FileNotFoundError(
             f"Model not found: {path}\nRun first: injury-risk train --track {track}"
         )
-    bundle = joblib.load(path)
-    return bundle["pipeline"], bundle["feature_cols"], bundle["classes"]
+    return joblib.load(path)
+
+
+def _inner_pipeline(bundle: dict):
+    """The SMOTE+estimator pipeline, reached through the calibrator if there is one.
+
+    A CalibratedClassifierCV wraps N fitted copies of the pipeline (one per fold).
+    Their coefficients differ slightly, but SHAP explains the *model's reasoning*,
+    not the calibration layer — so the first copy is representative and is what we
+    explain.
+    """
+    pipe = bundle["pipeline"]
+    if hasattr(pipe, "calibrated_classifiers_"):
+        return pipe.calibrated_classifiers_[0].estimator
+    return pipe
+
+
+def _make_explainer(estimator, background: pd.DataFrame):
+    """The right explainer for the model at hand.
+
+    Once model selection stopped being "XGBoost by default" (the tuned benchmark put
+    logistic regression ahead on the synthetic track), hardcoding TreeExplainer
+    stopped working: it only understands tree ensembles.
+    """
+    if isinstance(estimator, LogisticRegression):
+        # Exact and instant for a linear model — no sampling needed.
+        return shap.LinearExplainer(estimator, background)
+    return shap.TreeExplainer(estimator)
 
 
 def _sample_data(
@@ -48,13 +77,32 @@ def _sample_data(
 
 
 def compute_shap(track: str, n: int = 500, seed: int = DEFAULT_SEED):
-    """Return (explainer, shap_values, X) for a given track."""
-    pipe, feature_cols, _ = _load_model(track)
-    model = pipe.named_steps["clf"]
-    X = _sample_data(track, feature_cols, n=n, seed=seed)
+    """Return (explainer, shap_values, X) for a given track.
 
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer(X)
+    The estimator sees whatever the pipeline's preprocessing hands it — standardised
+    features, in the logistic regression's case. So SHAP is computed on the
+    transformed data, while the plots display the **original** values: a contribution
+    is attributed to a feature regardless of its units, and "sleep = 4.8 h" is
+    readable where "sleep = -2.3 σ" is not.
+    """
+    bundle = _load_model(track)
+    pipe = _inner_pipeline(bundle)
+    estimator = pipe.named_steps["clf"]
+
+    X = _sample_data(track, bundle["feature_cols"], n=n, seed=seed)
+
+    # Everything before the classifier. Resamplers (SMOTE) are inert at transform
+    # time, so this is just the scaler when there is one.
+    X_model = X
+    for _, step in pipe.steps[:-1]:
+        if hasattr(step, "transform"):
+            X_model = step.transform(X_model)
+    X_model = pd.DataFrame(X_model, columns=X.columns, index=X.index)
+
+    explainer = _make_explainer(estimator, X_model)
+    shap_values = explainer(X_model)
+    # Show the human-readable values, keep the computed contributions.
+    shap_values.data = X.to_numpy()
     return explainer, shap_values, X
 
 
