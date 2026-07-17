@@ -1,30 +1,29 @@
 {
   "track": "real",
+  "model": "random_forest",
+  "tuned": true,
+  "calibrated": true,
   "n_samples": 600,
   "n_features": 15,
-  "n_classes": 2,
-  "class_distribution": {
-    "0": 0.685,
-    "1": 0.315
-  },
+  "positive_rate": 0.315,
   "cv_strategy": "StratifiedKFold",
   "n_groups": null,
   "cross_validation": {
     "average_precision": {
-      "mean": 0.9194166962071464,
-      "std": 0.08139059249310533
+      "mean": 0.9569595259502364,
+      "std": 0.0399898291834037
     },
     "roc_auc": {
-      "mean": 0.9586484856262297,
-      "std": 0.024991248805273106
+      "mean": 0.9706594026942172,
+      "std": 0.02047237789363657
     },
     "recall": {
-      "mean": 0.9310099573257468,
-      "std": 0.03629681539630236
+      "mean": 0.9469416785206259,
+      "std": 0.03363364106092556
     },
     "f1": {
-      "mean": 0.8964978354978355,
-      "std": 0.04340256458747138
+      "mean": 0.9359795342318071,
+      "std": 0.04938251245920093
     }
   },
   "reference_points": {
@@ -34,31 +33,18 @@
     }
   },
   "lift_over_rules": null,
-  "holdout_report": {
-    "0": {
-      "precision": 0.9512195121951219,
-      "recall": 0.9397590361445783,
-      "f1-score": 0.9454545454545454,
-      "support": 83.0
-    },
-    "1": {
-      "precision": 0.868421052631579,
-      "recall": 0.8918918918918919,
-      "f1-score": 0.88,
-      "support": 37.0
-    },
-    "accuracy": 0.925,
-    "macro avg": {
-      "precision": 0.9098202824133504,
-      "recall": 0.9158254640182351,
-      "f1-score": 0.9127272727272727,
-      "support": 120.0
-    },
-    "weighted avg": {
-      "precision": 0.9256899871630295,
-      "recall": 0.925,
-      "f1-score": 0.9252727272727272,
-      "support": 120.0
-    }
-  }
+  "out_of_fold": {
+    "average_precision": 0.9049869381388495,
+    "roc_auc": 0.9604655054776708
+  },
+  "operating_point": {
+    "threshold": 0.2562814070351759,
+    "expected_cost": 119.0,
+    "recall": 0.9470899470899471,
+    "precision": 0.9040404040404041,
+    "false_positives": 19,
+    "false_negatives": 10,
+    "alert_rate": 0.33
+  },
+  "cost_ratio": 10.0
 }

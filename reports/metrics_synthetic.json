@@ -1,30 +1,29 @@
 {
   "track": "synthetic",
+  "model": "logistic_regression",
+  "tuned": true,
+  "calibrated": true,
   "n_samples": 20000,
   "n_features": 21,
-  "n_classes": 2,
-  "class_distribution": {
-    "0": 0.9512,
-    "1": 0.0488
-  },
+  "positive_rate": 0.0488,
   "cv_strategy": "StratifiedGroupKFold",
   "n_groups": 200,
   "cross_validation": {
     "average_precision": {
-      "mean": 0.29057110179790674,
-      "std": 0.07202208321249169
+      "mean": 0.3672656661370769,
+      "std": 0.032437648046737634
     },
     "roc_auc": {
-      "mean": 0.7989951890868199,
-      "std": 0.014924915013492674
+      "mean": 0.8419196651633319,
+      "std": 0.011639116699355693
     },
     "recall": {
-      "mean": 0.5991609723858832,
-      "std": 0.02329019203460343
+      "mean": 0.6991903889495708,
+      "std": 0.014705330521426477
     },
     "f1": {
-      "mean": 0.2990843449969945,
-      "std": 0.03660640053472905
+      "mean": 0.3177024676645336,
+      "std": 0.031538191273864744
     }
   },
   "reference_points": {
@@ -37,32 +36,26 @@
       "roc_auc": 0.8295741509430712
     }
   },
-  "lift_over_rules": 0.012446048488707229,
-  "holdout_report": {
-    "0": {
-      "precision": 0.9772727272727273,
-      "recall": 0.866073764059639,
-      "f1-score": 0.9183192345028429,
-      "support": 3823.0
-    },
-    "1": {
-      "precision": 0.16339869281045752,
-      "recall": 0.5649717514124294,
-      "f1-score": 0.2534854245880862,
-      "support": 177.0
-    },
-    "accuracy": 0.85275,
-    "macro avg": {
-      "precision": 0.5703357100415924,
-      "recall": 0.7155227577360341,
-      "f1-score": 0.5859023295454646,
-      "support": 4000.0
-    },
-    "weighted avg": {
-      "precision": 0.9412588012477718,
-      "recall": 0.85275,
-      "f1-score": 0.8889003384141149,
-      "support": 4000.0
-    }
-  }
+  "lift_over_rules": 0.27967533634734965,
+  "out_of_fold": {
+    "average_precision": 0.35065577484214466,
+    "roc_auc": 0.8396914133053675
+  },
+  "reliability": {
+    "brier_uncalibrated": 0.1321270573591522,
+    "brier_calibrated": 0.036415531359599844,
+    "mean_predicted_uncalibrated": 0.3235738462175626,
+    "mean_predicted_calibrated": 0.04923219486407466,
+    "actual_rate": 0.0488
+  },
+  "operating_point": {
+    "threshold": 0.10552763819095477,
+    "expected_cost": 5174.0,
+    "recall": 0.5901639344262295,
+    "precision": 0.3291428571428571,
+    "false_positives": 1174,
+    "false_negatives": 400,
+    "alert_rate": 0.0875
+  },
+  "cost_ratio": 10.0
 }

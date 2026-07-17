@@ -28,7 +28,9 @@ project rests on 3 pillars:
    Ratio*), a metric actually used by staff: optimal zone **0.8–1.3**, danger
    zone **> 1.5**.
 2. **Explainability (SHAP)** over raw *accuracy* — in a medical context,
-   **recall** (not missing an injury) matters more than overall precision.
+   **recall** (not missing an injury) matters more than overall precision. That is not
+   a slogan here: a miss costs **10×** a false alarm, and the decision threshold is
+   derived from that number rather than left at 0.5 (see below).
 3. **A visual, interactive deliverable** — a **Streamlit** dashboard, not just a notebook.
 
 Alongside the model, a rule-based **composite risk score** (low / moderate / high)
@@ -132,77 +134,124 @@ the censored tail whose 7-day horizon runs past the end of the simulation.
 
 ## 🧠 ML pipeline
 
-1. **Feature engineering** (`src/injury_risk/features/engineering.py`): 7/14/28-day rolling
-   (workload, soreness, sleep), **ACWR + zone** (under/optimal/elevated/danger),
-   **workload trend** over 7 days, position encoding.
-2. **Modeling** (`src/injury_risk/models/train.py`): `XGBoostClassifier` + **SMOTE**,
-   **5-fold cross-validation grouped by athlete** (see below). The positive class is
-   rare (~5%), so **PR-AUC (average precision) is the headline metric** — ROC-AUC is
-   over-optimistic under that kind of imbalance.
-3. **Explainability** (`src/injury_risk/visualization/shap_plots.py`): `TreeExplainer`,
-   global **summary plot** + per-athlete **waterfall plot**.
-4. **Dashboard** (`dashboard/app.py`): live score, colored gauge, active risk
-   factors, SHAP plots.
+1. **Feature engineering** (`features/engineering.py`): 7/14/28-day rolling windows,
+   **ACWR + zone**, workload trend, HR delta vs the athlete's own baseline.
+2. **Candidates** (`models/candidates.py`): `SMOTE + estimator` pipelines for logistic
+   regression, random forest and XGBoost — resampling always *inside* the fold.
+3. **Tuning** (`models/tune.py`): randomised search on **PR-AUC**, for **every**
+   candidate under the same budget.
+4. **Calibration + threshold** (`models/train.py`): isotonic calibration, then a
+   decision threshold derived from the **cost of being wrong**.
+5. **Explainability** (`visualization/shap_plots.py`): explainer chosen from the model
+   (`LinearExplainer` / `TreeExplainer`).
+6. **Dashboard** (`dashboard/app.py`): live rule-based score and its decomposition.
 
-### ⚠️ Two leakage guarantees, both tested
+### ⚠️ Three leakage guarantees, all tested
 
-**No athlete spans a split.** The synthetic dataset holds many daily rows per
-athlete; splitting them randomly would put the same athlete in both the training and
-the validation fold, letting the model memorise their baseline profile and recognise
-them at test time. The synthetic track therefore uses **`StratifiedGroupKFold` grouped
-on `athlete_id`** (200 groups); the hold-out split is grouped too. The real SIRP-600
-track is a snapshot (one row = one athlete), so grouping is meaningless there.
+- **No athlete spans a split** — `StratifiedGroupKFold` on `athlete_id` (200 groups).
+- **No feature sees the future** — a test corrupts every day after a cutoff and
+  asserts not one prior feature moves.
+- **Calibration keeps the grouping** — `CalibratedClassifierCV` silently *drops*
+  `groups`, so its folds are precomputed per outer fold in a proper **nested** CV.
+  That one would have quietly reintroduced the leakage this project already fixed.
 
-**No feature sees the future.** Every feature at day *t* is computed from data up to
-and including *t*; the target looks strictly forward. A test corrupts every day after
-a cutoff and asserts that not one feature before it moves.
+And the hazard driver (`latent_risk`) is never a feature.
 
-And the hazard driver (`latent_risk`) is **never** a feature — otherwise the target
-would be circular again.
+### Model selection: measured, not assumed
 
-### Results (seed 42, grouped CV)
+Every candidate was tuned under the **same budget and protocol** — because a tuned
+favourite against untuned baselines measures which model got attention, not which
+model is better.
 
-A PR-AUC means nothing without knowing what chance and what the domain rules already
-achieve on the same rows. So the model is reported **between two reference points**:
+**Synthetic track** (injury within 7 days, 4.9% positive)
 
-**Synthetic track — "injury within 7 days", 4.9% positive**
+| Model (tuned) | PR-AUC | ROC-AUC |
+|---|---|---|
+| **Logistic Regression** ✅ | **0.367 ± 0.032** | **0.842 ± 0.012** |
+| Random Forest | 0.344 | 0.832 |
+| XGBoost | 0.341 | 0.831 |
+| *Domain rules (baseline)* | *0.287* | *0.830* |
+| *Chance (prevalence)* | *0.049* | *0.500* |
 
-| | PR-AUC | ROC-AUC | Recall |
+**Real SIRP-600 track** (binary risk label, 31.5% positive)
+
+| Model (tuned) | PR-AUC | ROC-AUC |
+|---|---|---|
+| **Random Forest** ✅ | **0.957 ± 0.040** | **0.971 ± 0.020** |
+| XGBoost | 0.940 | — |
+| Logistic Regression | 0.781 | — |
+| *Chance (prevalence)* | *0.315* | *0.500* |
+
+**The delivered model differs per track, and that is the finding.** Tuning did not
+rescue XGBoost on the synthetic track (0.291 → 0.341, still last); it even pushed the
+two complex models *towards simplicity* — the search picked `C = 0.009` for the
+logistic regression and `max_depth = 3` for the forest. The synthetic hazard is
+**logit-linear by construction**, so the linear model is nearly correctly specified;
+that is a property of the simulation, not a claim about injury prediction. On real
+data the ranking flips back and trees win.
+
+> Reaching for gradient boosting by default is a reflex, not a decision. Here the
+> reflex would have shipped the worst of the three.
+
+### Calibration: a 1-point cost that buys a usable number
+
+SMOTE rebalances the classes to train, which inflates every probability. The raw model
+announces **32% average risk** on a population that gets injured **4.9%** of the time:
+it ranks well and lies about magnitude.
+
+| Synthetic | PR-AUC (ranking) | Brier (reliability) | Mean predicted |
 |---|---|---|---|
-| Chance (prevalence) | 0.049 | 0.500 | — |
-| **Domain rules** (`composite_risk_score`) | 0.287 | 0.830 | — |
-| XGBoost + SMOTE | 0.291 ± 0.072 | 0.799 ± 0.015 | 0.599 |
-| **Logistic Regression + SMOTE** | **0.367 ± 0.034** | **0.841 ± 0.011** | **0.697** |
+| Uncalibrated | 0.362 | 0.132 | 32.4% |
+| **Isotonic** | 0.351 | **0.036** | **4.9%** (actual: 4.9%) |
 
-**Real SIRP-600 track — binary risk label, 31.5% positive**
+Calibration costs ~1 point of ranking and improves reliability by **72%**. For a staff
+being told "20% risk", that trade is not close — an uncalibrated probability is a
+number that means nothing.
 
-| | PR-AUC | ROC-AUC | Recall |
-|---|---|---|---|
-| Chance (prevalence) | 0.315 | 0.500 | — |
-| XGBoost + SMOTE | 0.919 ± 0.081 | 0.959 ± 0.025 | 0.931 |
-| **Random Forest + SMOTE** | **0.934 ± 0.077** | **0.960 ± 0.026** | **0.947** |
+### The decision threshold comes from a cost, not from 0.5
 
-### 🔎 An uncomfortable result, reported rather than buried
+`0.5` is every classifier's default, and it carries a hidden claim: that a missed
+injury and a false alarm cost the same. On a 5% positive class a calibrated model may
+never even output 0.5 — so the classifier predicts "safe" for everyone, scores 95%
+accuracy, and is useless.
 
-**On the synthetic track, logistic regression beats XGBoost — clearly.** PR-AUC
-0.367 vs 0.291, ROC-AUC 0.841 vs 0.799 (a gap of ~3 standard deviations: not noise).
-It also beats the domain rules by **+28% PR-AUC**, where XGBoost barely matches them
-(+1%).
+The threshold minimises an explicit expected cost, with **a miss costing 10× a false
+alarm** (`config.COST_FALSE_NEGATIVE`) — a business statement anyone can audit and
+argue with:
 
-The reason is not mysterious, and it is a limitation of the *simulation*, not a
-finding about injury prediction: the hazard is **logit-linear in the latent risk by
-construction**, and that latent risk is itself close to additive in the features. The
-logistic model is therefore nearly *correctly specified*. Gradient boosting spends its
-capacity fitting noise around a relationship a linear model captures exactly.
+| Synthetic, at t = 0.106 | |
+|---|---|
+| Recall | **59%** of coming injuries flagged |
+| Precision | 33% |
+| Alert load | 8.8% of athlete-days |
 
-On the **real** dataset, the ranking flips back: tree models win (RF 0.934 / XGBoost
-0.919 vs LogReg 0.754). Which is the honest summary — **the best model depends on the
-data, and reaching for XGBoost by default is a reflex, not a decision.**
+### 🔎 The ACWR is *not* the top SHAP feature — and that is the interesting part
 
-> Model selection is deliberately *not* settled in this PR: tuning and calibration
-> ([#16](https://github.com/Amayyas/athlete-injury-risk-detection/issues/16)) may
-> still change the picture, and the delivered artefact should be the winner of a
-> tuned comparison, not of an untuned one.
+The project's headline claim used to be "**ACWR is the most decisive variable**". Once
+the target became a real injury event, the delivered model's global SHAP ranking put
+`injury_prone`, `days_since_injury` and chronic load **ahead of it** — ACWR lands 8th.
+
+That claim was wrong, but the naive reading of it would be wrong too. The data:
+
+| | Injury rate within 7 days | How often it applies |
+|---|---|---|
+| **ACWR in danger zone** | **28.7%** | only **5.3%** of days |
+| ACWR optimal | 1.95% | 76% of days |
+| Injury-prone athlete | 8.98% | 30% of athletes, **every day** |
+| Not injury-prone | 1.88% | — |
+
+**ACWR remains by far the strongest risk factor**: a ×15 ratio between its danger and
+optimal zones, against ×4.8 for proneness. But it *fires rarely*, and global SHAP
+importance is a **mean** — it rewards what contributes constantly over what contributes
+enormously but occasionally.
+
+So the honest statement is not "ACWR doesn't matter". It is: **ACWR is decisive when it
+fires, and it rarely fires.** Athlete profile dominates the average because it is
+always on.
+
+Which happens to match the best-established fact in sports medicine — *previous injury
+is the strongest predictor of future injury* — and echoes a genuine controversy in the
+recent literature about how much the ACWR really predicts.
 
 ---
 
