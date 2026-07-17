@@ -1,16 +1,18 @@
-"""Benchmark of baseline models (Week 3 of the plan).
+"""Compare the candidate models under one identical protocol.
 
-Compares three model families, **all preceded by SMOTE** and evaluated with the
-same protocol (stratified 5-fold cross-validation, recall-oriented metrics):
+Three families, all preceded by SMOTE, all evaluated with the same grouped
+cross-validation and the same metrics:
 
 - **Logistic Regression** — interpretable linear baseline;
 - **Random Forest** — non-linear ensemble baseline;
-- **XGBoost** — main model (gradient boosting).
+- **XGBoost** — gradient boosting.
 
-The goal is to justify the choice of XGBoost with a quantified comparison rather
-than by principle. Results are printed as a table and saved to
-``reports/benchmark_{track}.json``.
+Ranked on ``average_precision`` (PR-AUC): with a ~5% positive class it is the metric
+that discriminates, and recall alone would reward a model that flags everybody.
 
+Pass ``tuned=True`` to compare the *tuned* versions. That distinction matters: a
+tuned favourite against untuned baselines measures which model got attention, not
+which model is better.
 """
 
 from __future__ import annotations
@@ -18,113 +20,64 @@ from __future__ import annotations
 import json
 
 import pandas as pd
-from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_validate
-from sklearn.preprocessing import StandardScaler
-from xgboost import XGBClassifier
 
 from injury_risk.config import DEFAULT_SEED, REPORTS_DIR, SCORING
 from injury_risk.data.datasets import load_track
+from injury_risk.models.baselines import reference_points
+from injury_risk.models.candidates import CANDIDATES, build_candidate
 from injury_risk.models.splits import make_cv
+from injury_risk.models.tune import load_best_params
 
 
-def _candidate_models(n_classes: int, seed: int = DEFAULT_SEED) -> dict[str, ImbPipeline]:
-    """Return the candidate pipelines (SMOTE + model)."""
-    objective = "multi:softprob" if n_classes > 2 else "binary:logistic"
-
-    models = {
-        # Logistic regression needs scaling (sensitive to feature scale).
-        # The scaler must come *before* SMOTE: SMOTE interpolates between k-nearest
-        # neighbours using Euclidean distance, so on raw features the synthetic
-        # samples would be dominated by the large-scale variables (training_load in
-        # the hundreds vs sleep_hours in single digits).
-        "logistic_regression": ImbPipeline(
-            steps=[
-                ("scaler", StandardScaler()),
-                ("smote", SMOTE(random_state=seed)),
-                (
-                    "clf",
-                    LogisticRegression(
-                        max_iter=2000,
-                        class_weight=None,  # SMOTE already handles the imbalance
-                        random_state=seed,
-                    ),
-                ),
-            ]
-        ),
-        "random_forest": ImbPipeline(
-            steps=[
-                ("smote", SMOTE(random_state=seed)),
-                (
-                    "clf",
-                    RandomForestClassifier(
-                        n_estimators=300,
-                        max_depth=8,
-                        n_jobs=-1,
-                        random_state=seed,
-                    ),
-                ),
-            ]
-        ),
-        "xgboost": ImbPipeline(
-            steps=[
-                ("smote", SMOTE(random_state=seed)),
-                (
-                    "clf",
-                    XGBClassifier(
-                        n_estimators=300,
-                        max_depth=4,
-                        learning_rate=0.05,
-                        subsample=0.9,
-                        colsample_bytree=0.9,
-                        objective=objective,
-                        eval_metric="mlogloss" if n_classes > 2 else "logloss",
-                        tree_method="hist",
-                        random_state=seed,
-                        n_jobs=-1,
-                    ),
-                ),
-            ]
-        ),
-    }
-    return models
-
-
-def benchmark_track(track: str, seed: int = DEFAULT_SEED) -> pd.DataFrame:
-    """Evaluate the 3 baselines on a track and return a comparison table."""
+def benchmark_track(track: str, seed: int = DEFAULT_SEED, tuned: bool = False) -> pd.DataFrame:
+    """Evaluate every candidate on a track and return a comparison table."""
     data = load_track(track, seed=seed)
-    X, y = data.X, data.y
-
-    # Same splitter as training: grouped by athlete on the synthetic track, so the
-    # baselines are compared under the same (leak-free) protocol.
     cv = make_cv(track, seed=seed)
 
     rows = []
-    for name, pipe in _candidate_models(data.n_classes, seed).items():
-        res = cross_validate(pipe, X, y, groups=data.groups, cv=cv, scoring=SCORING, n_jobs=-1)
+    for name in CANDIDATES:
+        params = load_best_params(track, name) if tuned else None
+        pipe = build_candidate(name, data.n_classes, seed, params=params)
+        res = cross_validate(
+            pipe, data.X, data.y, groups=data.groups, cv=cv, scoring=SCORING, n_jobs=-1
+        )
         rows.append(
             {
                 "model": name,
+                "tuned": bool(params),
                 **{m: float(res[f"test_{m}"].mean()) for m in SCORING},
                 **{f"{m}_std": float(res[f"test_{m}"].std()) for m in SCORING},
             }
         )
 
     table = pd.DataFrame(rows).set_index("model").round(4)
-    # PR-AUC ranks the models: with a ~5% positive class it is the metric that
-    # actually discriminates. Recall alone would reward a model that flags everyone.
     table = table.sort_values("average_precision", ascending=False)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = REPORTS_DIR / f"benchmark_{track}.json"
-    out.write_text(json.dumps(table.reset_index().to_dict(orient="records"), indent=2))
+    suffix = "_tuned" if tuned else ""
+    out = REPORTS_DIR / f"benchmark_{track}{suffix}.json"
+    out.write_text(
+        json.dumps(
+            {
+                "track": track,
+                "tuned": tuned,
+                "reference_points": reference_points(data),
+                "models": table.reset_index().to_dict(orient="records"),
+            },
+            indent=2,
+        )
+    )
 
-    print(f"\n=== Benchmark '{track}' ({len(data)} rows, {data.n_classes} classes) ===")
+    label = "tuned" if tuned else "default params"
+    print(f"\n=== Benchmark '{track}' ({len(data)} rows, {label}) ===")
     print(table[list(SCORING)].to_string())
-    best = table.index[0]
-    print(f"-> Best average_precision (PR-AUC): {best}")
+
+    refs = reference_points(data)
+    if "rule_score" in refs:
+        print(
+            f"  (domain rules: average_precision = {refs['rule_score']['average_precision']:.4f})"
+        )
+    print(f"-> Best average_precision (PR-AUC): {table.index[0]}")
     print(f"Saved: {out}")
     return table
