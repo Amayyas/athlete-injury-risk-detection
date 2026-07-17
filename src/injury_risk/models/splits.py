@@ -44,6 +44,29 @@ def make_cv(
     return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
 
+def materialise_folds(
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: np.ndarray | None,
+    track: str,
+    seed: int = DEFAULT_SEED,
+    n_splits: int = CV_N_SPLITS,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """The grouped folds as a concrete list of index pairs.
+
+    Some scikit-learn meta-estimators — ``CalibratedClassifierCV`` in particular —
+    accept a ``cv`` splitter but **never pass ``groups`` to it**. A
+    ``StratifiedGroupKFold`` handed to them therefore sees ``groups=None`` and either
+    crashes or, worse, silently splits athletes across folds: exactly the leakage
+    this project fixed in #1, reintroduced through the back door.
+
+    Precomputing the folds here sidesteps that: an explicit list of indices carries
+    the grouping with it, and no meta-estimator can drop it.
+    """
+    splitter = make_cv(track, seed=seed, n_splits=n_splits)
+    return list(splitter.split(X, y, groups))
+
+
 def grouped_train_test_split(
     X: pd.DataFrame,
     y: pd.Series,

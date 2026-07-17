@@ -1,13 +1,22 @@
-"""XGBoost hyperparameter tuning (Week 4 of the plan).
+"""Hyperparameter search for **every** candidate, not just the favourite.
 
-Random search (``RandomizedSearchCV``) of the ``SMOTE + XGBoost`` pipeline
-hyperparameters, **optimized on macro recall** — consistent with the business
-priority: in a medical context, missing an injury (false negative) costs more
-than a false alarm.
+Why every candidate
+-------------------
+This module used to tune XGBoost alone, then the benchmark compared a *tuned*
+XGBoost against *untuned* baselines. That comparison cannot lose: it measures which
+model received attention, not which model is better. Once the untuned benchmark
+showed logistic regression winning on the synthetic track, settling the question
+honestly required tuning all three under the same budget and the same protocol.
 
-The best parameters are saved to ``models/best_params_{track}.json`` and
-automatically reused by ``injury_risk.models.train`` when the ``--tuned`` option is passed.
+What it optimises
+-----------------
+``average_precision`` (PR-AUC), not recall. Recall alone is trivially maximised by
+flagging everybody; PR-AUC scores the whole probability ranking, which is what we
+then turn into a decision with a cost-based threshold
+(:mod:`injury_risk.models.threshold`).
 
+Searches are grouped by athlete, like every other evaluation in the project — tuning
+against leaky folds would select whichever hyperparameters memorise athletes best.
 """
 
 from __future__ import annotations
@@ -15,95 +24,99 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import Pipeline as ImbPipeline
-from scipy.stats import randint, uniform
+from scipy.stats import loguniform, randint, uniform
 from sklearn.model_selection import RandomizedSearchCV
-from xgboost import XGBClassifier
 
-from injury_risk.config import DEFAULT_SEED, MODELS_DIR
+from injury_risk.config import DEFAULT_SEED, MODELS_DIR, TUNING_METRIC, TUNING_N_ITER
 from injury_risk.data.datasets import load_track
+from injury_risk.models.candidates import CANDIDATES, build_candidate
 from injury_risk.models.splits import make_cv
 
-# Search space (prefixed with ``clf__`` to target the pipeline step).
-PARAM_DISTRIBUTIONS = {
-    "clf__n_estimators": randint(150, 500),
-    "clf__max_depth": randint(3, 8),
-    "clf__learning_rate": uniform(0.01, 0.2),
-    "clf__subsample": uniform(0.6, 0.4),
-    "clf__colsample_bytree": uniform(0.6, 0.4),
-    "clf__min_child_weight": randint(1, 8),
-    "clf__gamma": uniform(0.0, 0.5),
+# Search spaces, prefixed with ``clf__`` to target the classifier step of each
+# pipeline. Deliberately modest: the point is a fair comparison under one budget,
+# not squeezing the last decimal out of one model.
+PARAM_DISTRIBUTIONS: dict[str, dict] = {
+    "xgboost": {
+        "clf__n_estimators": randint(150, 600),
+        "clf__max_depth": randint(2, 8),
+        "clf__learning_rate": loguniform(0.01, 0.3),
+        "clf__subsample": uniform(0.6, 0.4),
+        "clf__colsample_bytree": uniform(0.6, 0.4),
+        "clf__min_child_weight": randint(1, 12),
+        "clf__gamma": uniform(0.0, 0.5),
+        "clf__reg_lambda": loguniform(0.1, 20.0),
+    },
+    "random_forest": {
+        "clf__n_estimators": randint(200, 800),
+        "clf__max_depth": randint(3, 20),
+        "clf__min_samples_leaf": randint(1, 40),
+        "clf__min_samples_split": randint(2, 30),
+        "clf__max_features": uniform(0.2, 0.8),
+    },
+    "logistic_regression": {
+        "clf__C": loguniform(1e-3, 1e3),
+        "clf__l1_ratio": uniform(0.0, 1.0),
+    },
 }
 
 
-def _base_pipeline(n_classes: int, seed: int) -> ImbPipeline:
-    objective = "multi:softprob" if n_classes > 2 else "binary:logistic"
-    return ImbPipeline(
-        steps=[
-            ("smote", SMOTE(random_state=seed)),
-            (
-                "clf",
-                XGBClassifier(
-                    objective=objective,
-                    eval_metric="mlogloss" if n_classes > 2 else "logloss",
-                    tree_method="hist",
-                    random_state=seed,
-                    n_jobs=-1,
-                ),
-            ),
-        ]
-    )
+def best_params_path(track: str, model: str) -> Path:
+    return MODELS_DIR / f"best_params_{track}_{model}.json"
 
 
-def best_params_path(track: str) -> Path:
-    return MODELS_DIR / f"best_params_{track}.json"
-
-
-def tune_track(track: str, n_iter: int = 30, seed: int = DEFAULT_SEED) -> dict:
-    """Run the random search and save the best parameters."""
+def tune_candidate(
+    track: str,
+    model: str,
+    n_iter: int = TUNING_N_ITER,
+    seed: int = DEFAULT_SEED,
+) -> dict:
+    """Search one candidate's hyperparameters on one track, and save the best."""
     data = load_track(track, seed=seed)
-    X, y = data.X, data.y
-
-    # Grouped CV here too: tuning against leaky scores would select the
-    # hyperparameters that memorise athletes best.
-    cv = make_cv(track, seed=seed)
 
     search = RandomizedSearchCV(
-        estimator=_base_pipeline(data.n_classes, seed),
-        param_distributions=PARAM_DISTRIBUTIONS,
+        estimator=build_candidate(model, data.n_classes, seed),
+        param_distributions=PARAM_DISTRIBUTIONS[model],
         n_iter=n_iter,
-        scoring="recall_macro",  # business priority
-        cv=cv,
+        scoring=TUNING_METRIC,
+        cv=make_cv(track, seed=seed),
         random_state=seed,
         n_jobs=-1,
-        verbose=1,
+        error_score="raise",
     )
-    print(f"\n=== Tuning '{track}': {n_iter} configurations, scoring=recall_macro ===")
-    search.fit(X, y, groups=data.groups)
+    search.fit(data.X, data.y, groups=data.groups)
 
-    # Keep only the classifier hyperparameters (without the clf__ prefix).
-    best = {
-        k.replace("clf__", ""): v for k, v in search.best_params_.items() if k.startswith("clf__")
-    }
+    best = {k.removeprefix("clf__"): v for k, v in search.best_params_.items()}
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    out = best_params_path(track)
+    out = best_params_path(track, model)
     out.write_text(json.dumps(best, indent=2, default=str))
 
-    print(f"Best recall_macro (CV): {search.best_score_:.4f}")
-    print(f"Best parameters: {best}")
-    print(f"Saved: {out}")
-    return best
+    print(f"  {model:<20} {TUNING_METRIC} = {search.best_score_:.4f}  -> {out.name}")
+    return {"model": model, "score": float(search.best_score_), "params": best}
 
 
-def load_best_params(track: str) -> dict | None:
-    """Load the best parameters if tuning has already been performed."""
-    path = best_params_path(track)
+def tune_track(track: str, n_iter: int = TUNING_N_ITER, seed: int = DEFAULT_SEED) -> dict:
+    """Tune every candidate on a track, under the same budget."""
+    print(f"\n=== Tuning '{track}': {n_iter} configs per model, scoring={TUNING_METRIC} ===")
+    results = {name: tune_candidate(track, name, n_iter, seed) for name in CANDIDATES}
+    winner = max(results.values(), key=lambda r: r["score"])
+    print(f"  -> best: {winner['model']} ({winner['score']:.4f})")
+    return results
+
+
+def load_best_params(track: str, model: str) -> dict | None:
+    """Load a candidate's tuned parameters, if the search has been run."""
+    path = best_params_path(track, model)
     if not path.exists():
         return None
     params = json.loads(path.read_text())
-    # Recast types (JSON does not distinguish int/float).
-    for key in ("n_estimators", "max_depth", "min_child_weight"):
+    # JSON does not distinguish int from float; the estimators do.
+    for key in (
+        "n_estimators",
+        "max_depth",
+        "min_child_weight",
+        "min_samples_leaf",
+        "min_samples_split",
+    ):
         if key in params:
             params[key] = int(round(float(params[key])))
     return params

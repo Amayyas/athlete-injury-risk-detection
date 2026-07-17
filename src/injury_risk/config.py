@@ -181,3 +181,32 @@ XGB_DEFAULT_PARAMS = {
     "subsample": 0.9,
     "colsample_bytree": 0.9,
 }
+
+# The metric hyperparameter search optimises. PR-AUC ranks the *whole* probability
+# ordering, which is what we then threshold — optimising recall directly would just
+# reward a model that flags everybody.
+TUNING_METRIC = "average_precision"
+TUNING_N_ITER = 40
+
+# --------------------------------------------------------------------------- #
+# Decision threshold: the asymmetric cost of being wrong
+# --------------------------------------------------------------------------- #
+
+# The README has claimed a "recall-first" posture from day one, while the code
+# happily predicted at 0.5 — the default of every classifier, which implicitly says a
+# missed injury and a false alarm cost the same. They do not.
+#
+# A false negative is a **missed injury**: the athlete trains through it and the
+# muscle tears — weeks out, and a medical failure.
+# A false positive is a **needless caution**: one session adapted for someone who was
+# fine. Mildly annoying at worst.
+#
+# COST_RATIO is how many false alarms one missed injury is worth. It is a *business*
+# statement, not a tuning knob: change it and the operating point moves accordingly.
+# 10 is deliberately conservative — the ratio is arguably higher in a professional
+# setting, but a staff that gets flooded with alerts stops reading them.
+COST_FALSE_NEGATIVE = 10.0
+COST_FALSE_POSITIVE = 1.0
+
+# Never trust a threshold picked on the data the model was fitted on.
+THRESHOLD_SEARCH_POINTS = 200
