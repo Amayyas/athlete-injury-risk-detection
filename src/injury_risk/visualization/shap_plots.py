@@ -16,90 +16,38 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import joblib
 import matplotlib
 import numpy as np
-import pandas as pd
-from sklearn.linear_model import LogisticRegression
 
-from injury_risk.config import DEFAULT_SEED, FIGURES_DIR, MODELS_DIR
+from injury_risk.config import DEFAULT_SEED, FIGURES_DIR
 from injury_risk.data.datasets import load_track
+from injury_risk.inference import load_predictor, make_explainer, to_model_space
 
 matplotlib.use("Agg")  # non-interactive backend (file generation)
 import matplotlib.pyplot as plt  # noqa: E402
 import shap  # noqa: E402
 
 
-def _load_model(track: str) -> dict:
-    path = MODELS_DIR / f"model_{track}.joblib"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Model not found: {path}\nRun first: injury-risk train --track {track}"
-        )
-    return joblib.load(path)
-
-
-def _inner_pipeline(bundle: dict):
-    """The SMOTE+estimator pipeline, reached through the calibrator if there is one.
-
-    A CalibratedClassifierCV wraps N fitted copies of the pipeline (one per fold).
-    Their coefficients differ slightly, but SHAP explains the *model's reasoning*,
-    not the calibration layer — so the first copy is representative and is what we
-    explain.
-    """
-    pipe = bundle["pipeline"]
-    if hasattr(pipe, "calibrated_classifiers_"):
-        return pipe.calibrated_classifiers_[0].estimator
-    return pipe
-
-
-def _make_explainer(estimator, background: pd.DataFrame):
-    """The right explainer for the model at hand.
-
-    Once model selection stopped being "XGBoost by default" (the tuned benchmark put
-    logistic regression ahead on the synthetic track), hardcoding TreeExplainer
-    stopped working: it only understands tree ensembles.
-    """
-    if isinstance(estimator, LogisticRegression):
-        # Exact and instant for a linear model — no sampling needed.
-        return shap.LinearExplainer(estimator, background)
-    return shap.TreeExplainer(estimator)
-
-
-def _sample_data(
-    track: str, feature_cols: list[str], n: int = 500, seed: int = DEFAULT_SEED
-) -> pd.DataFrame:
-    """Rebuild a feature sample to explain the model."""
-    X = load_track(track, seed=seed).X[feature_cols]
-    if len(X) > n:
-        X = X.sample(n, random_state=seed)
-    return X.reset_index(drop=True)
-
-
 def compute_shap(track: str, n: int = 500, seed: int = DEFAULT_SEED):
     """Return (explainer, shap_values, X) for a given track.
 
-    The estimator sees whatever the pipeline's preprocessing hands it — standardised
-    features, in the logistic regression's case. So SHAP is computed on the
-    transformed data, while the plots display the **original** values: a contribution
-    is attributed to a feature regardless of its units, and "sleep = 4.8 h" is
-    readable where "sleep = -2.3 σ" is not.
+    The explainer selection and the transform-into-model-space logic are shared with
+    :mod:`injury_risk.inference` (the dashboard and the API use the same), so a global
+    summary and a live per-athlete explanation can never disagree about how the model
+    reasons. SHAP is computed on the data the estimator sees (standardised, for the
+    linear model) while the plots display the **original** values.
     """
-    bundle = _load_model(track)
-    pipe = _inner_pipeline(bundle)
-    estimator = pipe.named_steps["clf"]
+    predictor = load_predictor(track)
+    inner = predictor._inner
+    estimator = inner.named_steps["clf"]
 
-    X = _sample_data(track, bundle["feature_cols"], n=n, seed=seed)
+    X = load_track(track, seed=seed).X[predictor.feature_cols]
+    if len(X) > n:
+        X = X.sample(n, random_state=seed)
+    X = X.reset_index(drop=True)
 
-    # Everything before the classifier. Resamplers (SMOTE) are inert at transform
-    # time, so this is just the scaler when there is one.
-    X_model = X
-    for _, step in pipe.steps[:-1]:
-        if hasattr(step, "transform"):
-            X_model = step.transform(X_model)
-    X_model = pd.DataFrame(X_model, columns=X.columns, index=X.index)
-
-    explainer = _make_explainer(estimator, X_model)
+    X_model = to_model_space(inner, X)
+    explainer = make_explainer(estimator, X_model)
     shap_values = explainer(X_model)
     # Show the human-readable values, keep the computed contributions.
     shap_values.data = X.to_numpy()
