@@ -350,10 +350,42 @@ make check        # everything CI runs: lint + types + tests
 make test         # tests with their coverage floor
 make lint         # ruff + mypy
 make format       # black + ruff --fix
+make smoke        # guard model quality (fails if the metrics regress)
 ```
 
-All four run on every push and pull request via [GitHub Actions](.github/workflows/ci.yml),
-on Python 3.12 and 3.13.
+Lint, types and tests run on every push and pull request via
+[GitHub Actions](.github/workflows/ci.yml), on Python 3.12 and 3.13.
+
+### 🛡️ CI guards the model, not only the code
+
+Unit tests prove the pipeline *runs*. They say nothing about whether the model is still
+any **good** — a broken feature or a reverted leakage fix leaves every test green while
+the model quietly degrades. So a separate [workflow](.github/workflows/ml.yml) runs the
+whole pipeline on a small deterministic dataset and checks the metrics:
+
+```
+  [PASS] average_precision        0.2745  (expected >= 0.2)
+  [PASS] roc_auc                  0.8232  (expected >= 0.78)
+  [PASS] lift_over_chance         7.3472  (expected >= 4.0x)
+  [PASS] roc_auc_not_suspicious   0.8232  (expected <= 0.95, higher suggests leakage)
+```
+
+Three decisions make it worth having:
+
+- **It is sized so the metric is signal, not noise.** At 60 athletes PR-AUC swings
+  ±0.093 across seeds — a threshold there would fire at random. At 120 × 500 days it
+  tightens to ±0.035 (ROC-AUC ±0.010) and still runs in ~10s, deterministic to the
+  sixth decimal.
+- **There is a ceiling, not just floors.** A leak makes the numbers *better*. This
+  project shipped that twice (athletes spanning folds, then a calibrator silently
+  dropping the grouping), and floors alone would have missed both.
+- **It is proven to fire.** Tests break the model on purpose — shuffle the target, leak
+  it into the features — and assert the guard catches each.
+
+Its honest limit: the floors catch **collapses and leakage**, not subtle drift (removing
+the five strongest features only moves ROC-AUC 0.823 → 0.798). That is why the report
+also prints the **delta against a recorded baseline** — on a deterministic run, any
+movement at all is a real change, visible in the log long before it trips a threshold.
 
 ---
 
