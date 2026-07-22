@@ -14,6 +14,7 @@ annotated-types==0.7.0
     # via pydantic
 anyio==4.14.2
     # via
+    #   httpx
     #   starlette
     #   streamlit
     #   watchfiles
@@ -26,7 +27,10 @@ blinker==1.9.0
 cachetools==7.1.4
     # via streamlit
 certifi==2026.6.17
-    # via requests
+    # via
+    #   httpcore
+    #   httpx
+    #   requests
 charset-normalizer==3.4.9
     # via requests
 click==8.4.2
@@ -50,14 +54,21 @@ gitdb==4.0.12
 gitpython==3.1.51
     # via streamlit
 h11==0.16.0
-    # via uvicorn
+    # via
+    #   httpcore
+    #   uvicorn
+httpcore==1.0.9
+    # via httpx
 httptools==0.8.0
     # via
     #   streamlit
     #   uvicorn
+httpx==0.28.1
+    # via injury-risk (pyproject.toml)
 idna==3.18
     # via
     #   anyio
+    #   httpx
     #   requests
 imbalanced-learn==0.14.2
     # via injury-risk (pyproject.toml)
