@@ -5,7 +5,7 @@
 # so there is one definition to keep correct instead of three.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data train tune benchmark shap pipeline run test lint format check lock clean
+.PHONY: help setup data train tune benchmark shap pipeline run serve test lint format check lock clean
 
 PY ?= python
 
@@ -19,7 +19,7 @@ setup:  ## Install the package with its dev extras
 	$(PY) -m pip install -e ".[dev]"
 
 lock:  ## Regenerate the pinned dependency locks from pyproject
-	$(PY) -m piptools compile --quiet --strip-extras --extra dashboard -o requirements.lock pyproject.toml
+	$(PY) -m piptools compile --quiet --strip-extras --extra dashboard --extra api -o requirements.lock pyproject.toml
 	$(PY) -m piptools compile --quiet --strip-extras --extra dev -o requirements-dev.lock pyproject.toml
 
 # --- pipeline -------------------------------------------------------------- #
@@ -43,6 +43,9 @@ pipeline: data train shap  ## Run the whole pipeline end to end
 
 run:  ## Launch the Streamlit dashboard
 	injury-risk dashboard
+
+serve:  ## Serve the REST API (docs at /docs)
+	injury-risk serve --reload
 
 # --- quality --------------------------------------------------------------- #
 

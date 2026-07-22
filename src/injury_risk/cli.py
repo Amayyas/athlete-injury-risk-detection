@@ -149,6 +149,28 @@ def shap(
 
 
 @app.command()
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    reload: bool = typer.Option(False, help="Reload on code changes (development)."),
+) -> None:
+    """Serve the REST API (OpenAPI docs at /docs)."""
+    cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "injury_risk.api.main:app",
+        "--host",
+        host,
+        "--port",
+        str(port),
+    ]
+    if reload:
+        cmd.append("--reload")
+    subprocess.run(cmd, check=True)
+
+
+@app.command()
 def dashboard(port: int = 8501) -> None:
     """Launch the Streamlit dashboard."""
     app_path = ROOT / "dashboard" / "app.py"

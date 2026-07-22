@@ -41,6 +41,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dashboard = ["streamlit>=1.40,<2.0"]
+api = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pydantic>=2.9"]
 kaggle = ["kaggle>=1.6,<2.0"]
 notebooks = ["nbformat>=5.10", "nbconvert>=7.16", "ipykernel>=6.29"]
 dev = [
@@ -50,11 +51,15 @@ dev = [
     "black>=24.10",
     "ruff>=0.8",
     "pip-tools>=7.4",   # `make lock`
+    "httpx>=0.27",      # FastAPI TestClient
     # The other extras are listed out rather than self-referenced as
     # `injury-risk[dashboard,...]`: pip-compile resolves a self-referencing extra to
     # a local file:// path and writes *that* into the lock, which then only installs
     # on the machine that generated it.
     "streamlit>=1.40,<2.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
     "kaggle>=1.6,<2.0",
     "nbformat>=5.10",
     "nbconvert>=7.16",
