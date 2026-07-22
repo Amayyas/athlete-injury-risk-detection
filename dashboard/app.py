@@ -25,7 +25,8 @@ import streamlit as st
 
 from injury_risk.features.engineering import acwr_zone
 from injury_risk.features.risk_factors import HIGH, INFO, assess
-from injury_risk.inference import AthleteInputs, load_predictor
+from injury_risk.inference import AthleteInputs
+from injury_risk.service import resolve_service
 
 st.set_page_config(page_title="Athlete Injury Risk", page_icon="🩺", layout="wide")
 
@@ -100,15 +101,18 @@ SEVERITY_ICONS = {HIGH: "🔴", INFO: "🔵"}
 
 
 @st.cache_resource(show_spinner=False)
-def _predictor():
-    """The trained model, or None if it has not been trained yet."""
-    try:
-        return load_predictor("synthetic")
-    except FileNotFoundError:
-        return None
+def _resolved():
+    """Where predictions come from: the API if one is configured, else this process.
+
+    Set INJURY_RISK_API_URL to point the dashboard at a running service; without it
+    the model is loaded in-process, which is what the single-process free hosting
+    needs. Either way the rest of this file is identical — that is the point.
+    """
+    return resolve_service()
 
 
-predictor = _predictor()
+resolution = _resolved()
+service = resolution.service
 
 # --------------------------------------------------------------------------- #
 # Header
@@ -117,6 +121,19 @@ st.title("🩺 Muscle injury risk detection")
 st.caption(
     "Two readings of the same athlete: a transparent rule-based score, and the "
     "trained model's calibrated probability of an injury in the next 7 days."
+)
+
+SOURCE_BADGES = {
+    "api": ("🌐", "#2563eb", "Predictions served by the REST API"),
+    "local": ("💻", "#6b7280", "Model loaded in this process"),
+    "none": ("⚠️", "#f59e0b", "No model available"),
+}
+icon, colour, label = SOURCE_BADGES[resolution.source]
+st.markdown(
+    f"<span style='background:{colour};color:white;padding:2px 10px;border-radius:12px;"
+    f"font-size:0.8em'>{icon} {label}</span> "
+    f"<span style='color:#9ca3af;font-size:0.8em'>— {resolution.detail}</span>",
+    unsafe_allow_html=True,
 )
 
 col1, col2, col3 = st.columns(3)
@@ -138,8 +155,8 @@ with col2:
     )
 
 with col3:
-    if predictor is not None:
-        prediction = predictor.predict(inputs)
+    if service is not None:
+        prediction = service.predict(inputs)
         at_risk = prediction.at_risk
         st.metric(
             "Model — injury in 7 days",
@@ -186,12 +203,12 @@ st.divider()
 # --------------------------------------------------------------------------- #
 st.subheader("Why the model says so (SHAP)")
 
-if predictor is not None:
+if service is not None:
     st.caption(
-        f"Live explanation of the **{predictor.model}** model's prediction for the "
+        f"Live explanation of the **{service.model}** model's prediction for the "
         "current athlete — each bar is how a feature pushed the probability up or down."
     )
-    explanation = predictor.explain(inputs)
+    explanation = service.explain(inputs)
     shap.plots.waterfall(explanation, show=False, max_display=12)
     fig = plt.gcf()
     fig.set_size_inches(9, 6)
