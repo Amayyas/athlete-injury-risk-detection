@@ -385,6 +385,24 @@ curl -X POST localhost:8000/predict -H 'Content-Type: application/json' \
 the number served here is byte-for-byte the number the dashboard displays — a test
 asserts it. Interactive OpenAPI docs are generated at `/docs`.
 
+### The dashboard can consume the API — or fall back
+
+```bash
+injury-risk serve &                                   # terminal 1
+INJURY_RISK_API_URL=http://localhost:8000 make run    # terminal 2
+```
+
+The dashboard then talks to the service over HTTP and says so in a badge. Without the
+variable — or if the API is unreachable — it loads the model in-process instead and
+says *that*. Same code path either way: `injury_risk.api.client.ApiClient` returns the
+**same types** as the in-process predictor, including a `shap.Explanation` rebuilt from
+the API's per-feature contributions, so the identical waterfall renders on both sides.
+
+That fallback is not defensive decoration. Free Streamlit hosting runs a single process
+with no room for a separate API, while a container deployment runs both — the app has to
+work in both without a second implementation. A test asserts the two paths return the
+same probability to 1e-12.
+
 Requests are validated with **pydantic**: a resting heart rate of 500 or a negative
 sleep duration returns a `422`, not a confident meaningless prediction. And `/assess`
 answers with no trained model at all, while the model endpoints return a `503` that

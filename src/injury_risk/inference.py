@@ -140,7 +140,13 @@ def make_explainer(estimator, background: pd.DataFrame):
 
 
 class Predictor:
-    """A loaded model plus everything needed to predict and explain with it."""
+    """A loaded model plus everything needed to predict and explain with it.
+
+    Satisfies the same interface as the HTTP client in
+    :mod:`injury_risk.api.client`, so a caller can hold either without branching.
+    """
+
+    source = "local"
 
     def __init__(self, bundle: dict, track: str):
         self.track = track
