@@ -258,7 +258,8 @@ recent literature about how much the ACWR really predicts.
 ## 🧰 Tech stack
 
 `Python 3.12` · `pandas` · `numpy` · `scikit-learn` · `xgboost` ·
-`imbalanced-learn (SMOTE)` · `shap` · `streamlit` · `matplotlib` · `seaborn` ·
+`imbalanced-learn (SMOTE)` · `shap` · `streamlit` · `fastapi` · `pydantic` ·
+`matplotlib` · `seaborn` ·
 `pytest` · `black` · `ruff`
 
 ---
@@ -275,10 +276,12 @@ athlete-injury-risk-detection/
 ├── src/
 │   └── injury_risk/          # the installable package
 │       ├── config.py         # single source of truth (paths, thresholds, weights, CV)
+│       ├── api/              # main.py + schemas.py (FastAPI service)
 │       ├── data/             # datasets.py (public API), generate_synthetic.py, load_dataset.py
 │       ├── features/         # engineering.py (ACWR, rolling) + risk_factors.py (rule scoring)
 │       ├── models/           # train.py, tune.py, benchmark.py, splits.py (grouped CV)
-│       └── visualization/    # shap_plots.py
+│       ├── visualization/    # shap_plots.py
+│       └── inference.py      # the serving seam: dashboard + API share it
 ├── dashboard/                # app.py (Streamlit)
 ├── tests/                    # pytest tests
 ├── notebooks/                # 01_eda.ipynb
@@ -307,6 +310,9 @@ make pipeline
 
 # 3) Launch the dashboard (works even without a trained model)
 make run
+
+# 4) Or serve the REST API — interactive docs at /docs
+make serve
 ```
 
 Or stage by stage:
@@ -320,6 +326,7 @@ injury-risk tune --track synthetic          # hyperparameter search
 injury-risk train --tuned                   # train and write the metrics report
 injury-risk shap --track synthetic          # explainability plots
 injury-risk dashboard                       # Streamlit app
+injury-risk serve                           # REST API (OpenAPI docs at /docs)
 ```
 
 ### Reproducible installs
@@ -347,6 +354,41 @@ make format       # black + ruff --fix
 
 All four run on every push and pull request via [GitHub Actions](.github/workflows/ci.yml),
 on Python 3.12 and 3.13.
+
+---
+
+## 🌐 REST API
+
+```bash
+injury-risk serve          # or: make serve   -> http://127.0.0.1:8000/docs
+```
+
+| Method | Endpoint | What it does |
+|---|---|---|
+| `GET` | `/health` | Liveness, and whether a model is loaded |
+| `GET` | `/model-info` | What is deployed: model, threshold, features, horizon |
+| `POST` | `/assess` | Rule-based score + its decomposition — **needs no model** |
+| `POST` | `/predict` | Calibrated probability + cost-based decision |
+| `POST` | `/explain` | Per-feature SHAP contributions for that athlete |
+
+```bash
+curl -X POST localhost:8000/predict -H 'Content-Type: application/json' \
+  -d '{"acute_load":124,"chronic_load":61,"sleep_hours":4.8,"soreness":7.5,
+       "resting_hr":68,"injury_prone":true,"previous_injuries":4,"days_since_injury":28}'
+```
+```json
+{"probability": 0.1467, "at_risk": true, "threshold": 0.1055,
+ "model": "logistic_regression", "horizon_days": 7}
+```
+
+**The API and the dashboard share one implementation** (`injury_risk.inference`), so
+the number served here is byte-for-byte the number the dashboard displays — a test
+asserts it. Interactive OpenAPI docs are generated at `/docs`.
+
+Requests are validated with **pydantic**: a resting heart rate of 500 or a negative
+sleep duration returns a `422`, not a confident meaningless prediction. And `/assess`
+answers with no trained model at all, while the model endpoints return a `503` that
+says how to train one — the same graceful degradation as the dashboard.
 
 ---
 
