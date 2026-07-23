@@ -19,7 +19,7 @@ classifiers = [
 
 dependencies = [
     # Data & compute
-    "pandas>=2.2,<3.0",
+    "pandas>=2.2,<4.0",
     "numpy>=1.26,<3.0",
     "scipy>=1.11",
     "pyarrow>=15.0",            # parquet backend
