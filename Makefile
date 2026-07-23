@@ -5,7 +5,7 @@
 # so there is one definition to keep correct instead of three.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data train tune benchmark shap pipeline run serve test smoke lint format check lock clean
+.PHONY: help setup data train tune benchmark shap pipeline run serve test smoke notebooks audit hooks lint format check lock clean
 
 PY ?= python
 
@@ -54,6 +54,15 @@ test:  ## Run the test suite with its coverage floor
 
 smoke:  ## Guard model quality (fails if the metrics regress)
 	injury-risk smoke-test
+
+notebooks:  ## Execute the notebooks (as CI does)
+	jupyter nbconvert --to notebook --execute --stdout --ExecutePreprocessor.timeout=600 notebooks/*.ipynb > /dev/null
+
+audit:  ## Scan pinned dependencies for known vulnerabilities
+	pip-audit --requirement requirements.lock --strict
+
+hooks:  ## Install the pre-commit hooks
+	pre-commit install
 
 lint:  ## Lint and type-check
 	ruff check .

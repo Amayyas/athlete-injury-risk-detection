@@ -351,7 +351,17 @@ make test         # tests with their coverage floor
 make lint         # ruff + mypy
 make format       # black + ruff --fix
 make smoke        # guard model quality (fails if the metrics regress)
+make notebooks    # execute the notebooks (proves they still run)
+make audit        # scan pinned dependencies for known vulnerabilities
+make hooks        # install the pre-commit hooks
 ```
+
+Local **pre-commit** hooks mirror CI (ruff, black, `nbstripout`, `gitleaks`), so lint
+errors, committed notebook outputs and leaked secrets are caught before they are pushed
+(`make hooks` to install). CI additionally **executes every notebook** — the EDA one
+once drifted broken because nothing re-ran it — runs **`pip-audit`** on the pinned set
+and **`gitleaks`** over history, and **Dependabot** keeps dependencies and Actions
+current.
 
 Lint, types and tests run on every push and pull request via
 [GitHub Actions](.github/workflows/ci.yml), on Python 3.12 and 3.13.
