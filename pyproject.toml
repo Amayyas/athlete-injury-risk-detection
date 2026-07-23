@@ -26,7 +26,7 @@ dependencies = [
     "openpyxl>=3.1,<4.0",       # .xlsx datasets (SIRP-600)
     # Machine learning
     "scikit-learn>=1.5,<2.0",
-    "xgboost>=2.1,<3.0",
+    "xgboost>=2.1,<4.0",
     "imbalanced-learn>=0.14,<0.15",
     # Explainability
     "shap>=0.46,<0.50",
