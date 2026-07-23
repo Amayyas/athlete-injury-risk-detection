@@ -44,7 +44,7 @@ dependencies = [
 [project.optional-dependencies]
 dashboard = ["streamlit>=1.40,<2.0"]
 api = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "pydantic>=2.9"]
-kaggle = ["kaggle>=1.6,<2.0"]
+kaggle = ["kaggle>=1.6,<3.0"]
 notebooks = ["nbformat>=5.10", "nbconvert>=7.16", "ipykernel>=6.29", "jupyter>=1.1"]
 dev = [
     "pytest>=8.3,<9.0",
@@ -63,7 +63,7 @@ dev = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
-    "kaggle>=1.6,<2.0",
+    "kaggle>=1.6,<3.0",
     "nbformat>=5.10",
     "nbconvert>=7.16",
     "ipykernel>=6.29",
