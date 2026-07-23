@@ -1,0 +1,46 @@
+# Local guardrails, mirroring CI so problems surface before they are pushed.
+#   pip install pre-commit && pre-commit install
+default_language_version:
+  python: python3.12
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: debug-statements
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+        # black is the formatter of record; ruff-format only checks agreement.
+        args: ["--check"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+
+  # Notebook outputs are NOT committed: they bloat the repo (the EDA notebook is 14 KB
+  # stripped vs 530 KB executed) and produce unreadable base64 diffs. This hook is what
+  # keeps it that way — a lesson learned the hard way, when the notebook silently drifted
+  # broken because nothing re-ran it (now guarded by CI, see .github/workflows/ci.yml).
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+
+  # Never commit a credential — this project handles a Kaggle token.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
