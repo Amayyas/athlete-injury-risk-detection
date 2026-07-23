@@ -135,6 +135,23 @@ def benchmark(
         benchmark_track(name, seed=seed, tuned=tuned)
 
 
+@app.command(name="smoke-test")
+def smoke_test(
+    seed: int = DEFAULT_SEED,
+    report: Path = typer.Option(None, help="Write the metrics as JSON to this path."),
+) -> None:
+    """Guard model quality: run the pipeline small and fail if metrics regress."""
+    from injury_risk.models.smoke import format_report, run_smoke_test, write_report
+
+    result = run_smoke_test(seed=seed)
+    typer.echo(format_report(result))
+    if report is not None:
+        write_report(result, report)
+        typer.echo(f"\nReport -> {report}")
+    if not result.passed:
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def shap(
     track: str = "synthetic",

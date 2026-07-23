@@ -83,6 +83,9 @@ testpaths = ["tests"]
 # so it can only go up. It went 15 -> 50 when the suite was broadened (#10). The
 # uncovered remainder is mostly CLI entry points and plotting code.
 addopts = "-q --cov=injury_risk --cov-report=term-missing --cov-fail-under=50"
+markers = [
+    "slow: runs the full pipeline (seconds each) — the model-quality guard",
+]
 
 [tool.coverage.run]
 source = ["injury_risk"]

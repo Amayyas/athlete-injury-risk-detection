@@ -5,7 +5,7 @@
 # so there is one definition to keep correct instead of three.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data train tune benchmark shap pipeline run serve test lint format check lock clean
+.PHONY: help setup data train tune benchmark shap pipeline run serve test smoke lint format check lock clean
 
 PY ?= python
 
@@ -51,6 +51,9 @@ serve:  ## Serve the REST API (docs at /docs)
 
 test:  ## Run the test suite with its coverage floor
 	pytest
+
+smoke:  ## Guard model quality (fails if the metrics regress)
+	injury-risk smoke-test
 
 lint:  ## Lint and type-check
 	ruff check .

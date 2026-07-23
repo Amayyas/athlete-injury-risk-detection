@@ -189,6 +189,40 @@ TUNING_METRIC = "average_precision"
 TUNING_N_ITER = 40
 
 # --------------------------------------------------------------------------- #
+# CI smoke test: guarding model quality, not just code
+# --------------------------------------------------------------------------- #
+
+# A deliberately small run so CI stays fast (~6s), but not so small that the metric
+# becomes noise. Measured across seeds: at 60 athletes PR-AUC swings +/-0.093, which
+# would make any threshold meaningless; at 120x500 it tightens to +/-0.035 and ROC-AUC
+# to +/-0.010. Fixed seed, so the run is reproducible to the 6th decimal.
+SMOKE_N_ATHLETES = 120
+SMOKE_N_DAYS = 500
+SMOKE_SAMPLE_PER_ATHLETE = 60
+
+# Floors, set well below the observed values (PR-AUC 0.274, ROC-AUC 0.823) so normal
+# variation never trips them, while a real regression does: broken features or a
+# reverted leakage fix drop ROC-AUC to ~0.6-0.7.
+SMOKE_MIN_AVERAGE_PRECISION = 0.20
+SMOKE_MIN_ROC_AUC = 0.78
+SMOKE_MIN_LIFT_OVER_CHANCE = 4.0  # PR-AUC / prevalence; observed 7.3x
+
+# A *ceiling*, which is the less obvious half. This project has already shipped two
+# leaks (athletes spanning CV folds, then a calibrator silently dropping the grouping),
+# and both made the numbers quietly better. Injury prediction cannot legitimately reach
+# ROC-AUC 0.95 on this data, so if it does, something leaked.
+SMOKE_MAX_ROC_AUC = 0.95
+
+# The values this exact (deterministic) run currently produces. They are not
+# thresholds — they are a reference point printed alongside the result, so drift shows
+# up in the CI log even when it is too small to fail. Measured: removing the five
+# strongest features only moves ROC-AUC from 0.823 to 0.798, so the floors catch
+# collapses and leakage, not subtle degradation; the delta is what surfaces the latter.
+# Update them deliberately when a change to the data or the model is intended.
+SMOKE_BASELINE_AVERAGE_PRECISION = 0.2745
+SMOKE_BASELINE_ROC_AUC = 0.8232
+
+# --------------------------------------------------------------------------- #
 # Decision threshold: the asymmetric cost of being wrong
 # --------------------------------------------------------------------------- #
 

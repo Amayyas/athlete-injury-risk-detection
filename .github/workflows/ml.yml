@@ -1,0 +1,59 @@
+name: ML
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ml-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Model quality guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.lock
+
+      - name: Install the package (pinned)
+        run: pip install -c requirements-dev.lock -e ".[dev]"
+
+      # Generates a small dataset, trains the delivered model, cross-validates it
+      # grouped by athlete, and fails if the metrics leave their committed band.
+      # Deterministic and ~10s: no dataset or tuned parameters are committed, so this
+      # runs from a clean checkout with nothing but the source.
+      - name: Guard model quality
+        shell: bash
+        run: |
+          # pipefail so tee cannot swallow a failing exit code.
+          set -o pipefail
+          injury-risk smoke-test --report reports/smoke.json | tee reports/smoke.txt
+
+      - name: Publish the metrics in the job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### ML smoke test"
+            echo '```'
+            cat reports/smoke.txt 2>/dev/null || echo "the run produced no output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the metrics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: smoke-metrics
+          path: reports/smoke.json
+          if-no-files-found: warn
