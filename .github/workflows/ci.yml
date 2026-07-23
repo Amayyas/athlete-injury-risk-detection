@@ -89,3 +89,52 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: error
+
+  notebooks:
+    name: Notebooks execute
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.lock
+
+      - name: Install the package (pinned)
+        run: pip install -c requirements-dev.lock -e ".[dev]"
+
+      # The notebook silently drifted broken once — it referenced columns the ML
+      # redesign removed, and nothing re-ran it. Executing it here is the only proof
+      # it still works. Its data-audit cells guard on the (gitignored) Kaggle files
+      # and skip cleanly when they are absent, which they are in CI.
+      - name: Execute every notebook
+        run: |
+          jupyter nbconvert --to notebook --execute --stdout \
+            --ExecutePreprocessor.timeout=600 notebooks/*.ipynb > /dev/null
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # gitleaks scans history, not just the tip
+
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # Audit the *pinned* set, since that is what actually gets deployed.
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements.lock --strict
