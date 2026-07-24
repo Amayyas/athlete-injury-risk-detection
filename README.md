@@ -399,6 +399,30 @@ movement at all is a real change, visible in the log long before it trips a thre
 
 ---
 
+## 🐳 Docker
+
+```bash
+docker run -p 8501:8501 ghcr.io/amayyas/athlete-injury-risk-detection:edge
+```
+
+The image **trains a model in at build time** (~15s, deterministic), so `docker run`
+works out of the box — the dashboard shows real predictions, no external artefact to
+fetch. It runs as a non-root user, patches its OS packages, and carries a healthcheck.
+The NVIDIA CUDA libraries xgboost bundles (~400 MB) are stripped, since this is a
+CPU-only image whose delivered model is a logistic regression.
+
+Run the **API and dashboard together** — the client/server split made concrete, the
+dashboard talking to the API over the Docker network:
+
+```bash
+docker compose up --build      # dashboard :8501, API :8000/docs
+```
+
+Images publish to **ghcr.io** on every push to `main` (`:edge`) and on tags (`:v1.2.3`);
+pull requests build the image but do not push.
+
+---
+
 ## 🌐 REST API
 
 ```bash
