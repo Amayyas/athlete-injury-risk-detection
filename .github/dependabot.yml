@@ -1,21 +1,32 @@
 version: 2
 updates:
-  # Python dependencies declared in pyproject.toml.
+  # Python dependencies.
+  #
+  # Routine version updates are turned OFF (open-pull-requests-limit: 0). This is a
+  # lock-pinned *application*: the installed versions live in requirements.lock /
+  # requirements-dev.lock, and CI installs from those. Dependabot's pip updates only
+  # widen the ranges in pyproject.toml without touching the lock, so they change
+  # nothing that actually installs or gets tested — pure noise here. Dependencies are
+  # bumped deliberately via `make lock`, guarded by the full suite and the ML smoke
+  # test.
+  #
+  # This limit does NOT affect Dependabot *security* updates: vulnerability advisories
+  # still open PRs (repo setting: Security → Dependabot security updates).
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      # One PR for routine bumps rather than a flood; majors stay separate so they
-      # get reviewed on their own.
-      python-minor:
-        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 0
     labels: ["infra"]
 
-  # The GitHub Actions themselves (checkout, setup-python, upload-artifact…).
+  # GitHub Actions, on the other hand, Dependabot maintains cleanly — and there is no
+  # lock in the way. Kept on, but grouped so a batch of action bumps arrives as one PR
+  # instead of four.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
     labels: ["ci"]
