@@ -165,6 +165,21 @@ def shap(
     save_waterfall_plot(track, index=index, n=n)
 
 
+@app.command(name="fetch-model")
+def fetch_model(
+    track: str = "synthetic",
+    repo: str = "Amayyas/athlete-injury-risk-detection",
+    force: bool = typer.Option(False, help="Re-download even if a model is present."),
+) -> None:
+    """Download the delivered model from the repo's latest GitHub Release."""
+    from injury_risk.config import MODELS_DIR
+    from injury_risk.release import download_model, ensure_model
+
+    fetch = download_model if force else ensure_model
+    path = fetch(track, repo=repo, dest_dir=MODELS_DIR)
+    typer.echo(f"Model ready at {path}")
+
+
 @app.command()
 def serve(
     host: str = "0.0.0.0",  # noqa: S104 - the API is meant to be reachable
