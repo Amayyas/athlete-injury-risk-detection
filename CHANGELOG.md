@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/Amayyas/athlete-injury-risk-detection/compare/v0.2.0...v0.2.1) (2026-07-24)
+
+
+### Bug fixes
+
+* **ci:** drop the component prefix from release tags ([91e5fcb](https://github.com/Amayyas/athlete-injury-risk-detection/commit/91e5fcb980180573c53dac746e234cae5c8e239f))
+* **ci:** plain vX.Y.Z release tags (Docker publish) ([562f432](https://github.com/Amayyas/athlete-injury-risk-detection/commit/562f432a6e1de644b4760ae42fc715338396c5fc))
+
 ## [0.2.0](https://github.com/Amayyas/athlete-injury-risk-detection/compare/injury-risk-v0.1.0...injury-risk-v0.2.0) (2026-07-24)
 
 
