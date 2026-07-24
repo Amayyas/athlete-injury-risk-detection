@@ -5,7 +5,7 @@
 # so there is one definition to keep correct instead of three.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data train tune benchmark shap pipeline run serve test smoke notebooks audit hooks lint format check lock clean
+.PHONY: help setup data train tune benchmark shap pipeline run docker-build docker-up serve test smoke notebooks audit hooks lint format check lock clean
 
 PY ?= python
 
@@ -43,6 +43,12 @@ pipeline: data train shap  ## Run the whole pipeline end to end
 
 run:  ## Launch the Streamlit dashboard
 	injury-risk dashboard
+
+docker-build:  ## Build the container image (trains a model in)
+	docker build -t injury-risk:local .
+
+docker-up:  ## Run the API + dashboard together (docker compose)
+	docker compose up --build
 
 serve:  ## Serve the REST API (docs at /docs)
 	injury-risk serve --reload

@@ -1,0 +1,34 @@
+# Runs the API and the dashboard as two services — the same client/server split the
+# code supports, made concrete. The dashboard is pointed at the API over the network
+# (INJURY_RISK_API_URL); if the API is down it falls back to its in-process model, so
+# the demo never hard-fails.
+#
+#   docker compose up --build      -> dashboard on :8501, API on :8000/docs
+services:
+  api:
+    build: .
+    image: ghcr.io/amayyas/athlete-injury-risk-detection:local
+    command: ["serve", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  dashboard:
+    # Reuses the image the api service builds — no second build.
+    image: ghcr.io/amayyas/athlete-injury-risk-detection:local
+    command: ["dashboard", "--port", "8501"]
+    ports:
+      - "8501:8501"
+    environment:
+      PORT: "8501"
+      INJURY_RISK_API_URL: "http://api:8000"
+    depends_on:
+      api:
+        condition: service_healthy
