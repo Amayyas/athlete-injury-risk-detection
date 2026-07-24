@@ -423,6 +423,18 @@ one in — or a checkout that trained one — never re-downloads.
 
 ---
 
+## 🚀 Live demo
+
+A live dashboard runs on **Hugging Face Spaces**, backed by the published container
+image — so the model predictions are real, not a placeholder. It shows the rule-based
+score, the model's calibrated 7-day injury probability, and a live SHAP explanation for
+the athlete you configure.
+
+> Deployment is a thin wrapper over the ghcr.io image (model baked in, nothing to
+> download). Steps: [`deploy/huggingface/DEPLOY.md`](deploy/huggingface/DEPLOY.md).
+
+---
+
 ## 🐳 Docker
 
 ```bash
