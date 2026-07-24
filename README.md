@@ -399,6 +399,30 @@ movement at all is a real change, visible in the log long before it trips a thre
 
 ---
 
+## 📦 Releases & versioning
+
+Versioning is **SemVer**, and releases are automated from the commit history — the
+project uses [Conventional Commits](https://www.conventionalcommits.org/), so
+[release-please](https://github.com/googleapis/release-please) maintains a release PR
+that bumps the version and writes `CHANGELOG.md`. Merging it tags the version, cuts a
+GitHub Release, and publishes the Docker image (`:vX.Y.Z`).
+
+**Each release carries the delivered model.** Trained models are gitignored — they are
+build artefacts, not source — so the release pipeline trains the delivered model and
+attaches it, with its metrics and a provenance manifest (tag, git SHA, seed, date). A
+GitHub Release is a lightweight model registry; no MLflow needed at this scale.
+
+A deployment (or anyone) fetches it instead of training:
+
+```bash
+injury-risk fetch-model            # downloads the model from the latest release
+```
+
+`ensure_model()` is a no-op when a model is already present, so a container that baked
+one in — or a checkout that trained one — never re-downloads.
+
+---
+
 ## 🐳 Docker
 
 ```bash

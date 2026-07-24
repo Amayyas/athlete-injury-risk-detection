@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # Maintains a release PR from the conventional-commit history; merging it tags a
+  # version and cuts a GitHub Release.
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # #29: attach the delivered model and its metrics to the release, so a deployment can
+  # fetch a versioned model instead of training one. Trained models are gitignored (they
+  # are artefacts, not source), and a GitHub Release is a fine model registry at this
+  # scale.
+  artifacts:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.released == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.lock
+
+      - name: Install the package (pinned)
+        run: pip install -c requirements-dev.lock -e ".[dev]"
+
+      # Only the synthetic track: the real one needs the private Kaggle dataset, absent
+      # in CI. The synthetic model is the delivered/deployed one anyway. Deterministic,
+      # so the attached model is reproducible from this tag.
+      - name: Train the delivered model and its explanations
+        run: |
+          injury-risk data
+          injury-risk train --track synthetic
+          injury-risk shap --track synthetic
+
+      - name: Bundle the artefacts (with provenance)
+        run: |
+          mkdir -p release-assets
+          cp models/model_synthetic.joblib release-assets/
+          cp reports/metrics_synthetic.json release-assets/
+          tar -czf release-assets/shap-figures.tar.gz -C reports/figures .
+          cat > release-assets/MANIFEST.json <<EOF
+          {
+            "tag": "${{ needs.release-please.outputs.tag }}",
+            "git_sha": "${{ github.sha }}",
+            "trained_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "track": "synthetic",
+            "seed": 42
+          }
+          EOF
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ needs.release-please.outputs.tag }}" release-assets/* --clobber

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, status
 
+from injury_risk import __version__
 from injury_risk.api.schemas import (
     AssessmentResponse,
     AthleteRequest,
@@ -54,7 +55,7 @@ app = FastAPI(
         "next 7 days, with a calibrated probability, a cost-based decision and a SHAP "
         "explanation. A transparent rule-based score is available without any model."
     ),
-    version="0.1.0",
+    version=__version__,
 )
 
 
@@ -96,6 +97,7 @@ def model_info() -> ModelInfoResponse:
         features=list(predictor.feature_cols),
         horizon_days=PREDICTION_HORIZON_DAYS,
         cost_ratio=COST_FALSE_NEGATIVE / COST_FALSE_POSITIVE,
+        version=__version__,
     )
 
 

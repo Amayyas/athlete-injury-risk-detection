@@ -118,6 +118,7 @@ class ModelInfoResponse(BaseModel):
     features: list[str]
     horizon_days: int
     cost_ratio: float = Field(..., description="How many false alarms one missed injury is worth")
+    version: str = Field(..., description="The deployed package version")
 
 
 class HealthResponse(BaseModel):
