@@ -167,7 +167,7 @@ def shap(
 
 @app.command()
 def serve(
-    host: str = "127.0.0.1",
+    host: str = "0.0.0.0",  # noqa: S104 - the API is meant to be reachable
     port: int = 8000,
     reload: bool = typer.Option(False, help="Reload on code changes (development)."),
 ) -> None:
@@ -188,11 +188,26 @@ def serve(
 
 
 @app.command()
-def dashboard(port: int = 8501) -> None:
+def dashboard(
+    port: int = 8501,
+    host: str = "0.0.0.0",  # noqa: S104 - a dashboard is meant to be reachable
+) -> None:
     """Launch the Streamlit dashboard."""
     app_path = ROOT / "dashboard" / "app.py"
     subprocess.run(
-        [sys.executable, "-m", "streamlit", "run", str(app_path), "--server.port", str(port)],
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(app_path),
+            "--server.port",
+            str(port),
+            "--server.address",
+            host,
+            "--server.headless",
+            "true",
+        ],
         check=True,
     )
 

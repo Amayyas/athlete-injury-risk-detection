@@ -1,0 +1,31 @@
+# Keep the build context small and the image clean.
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+coverage.xml
+htmlcov
+
+# Generated artefacts — the image trains its own model at build time.
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+models/*.joblib
+models/*.json
+reports/figures/*.png
+
+# Local / editor
+.vscode
+.idea
+.DS_Store
+notebooks/.ipynb_checkpoints
+
+# Docs assets not needed at runtime
+docs/
